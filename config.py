@@ -1,6 +1,8 @@
 from os import environ
 from microsoft.agents.authentication.msal import AuthTypes, MsalAuthConfiguration
 from dotenv import load_dotenv
+import json
+import re
 
 # Load environment variables from .env file
 load_dotenv()
@@ -40,8 +42,19 @@ class DefaultConfig(MsalAuthConfiguration):
         
         # Azure Assistant Configuration
         self.AZURE_ASSISTANT_ID = environ.get("az_assistant_id")
-        self.FILE_IDS = environ.get("file_ids")
         self.az_assistant_id = environ.get("az_assistant_id")
+        
+        # Hub-specific Assistant File IDs (parse JSON from environment)
+        self._hub_assistant_file_ids = {}
+        hub_file_ids_json = environ.get("hub_assistant_file_ids", "{}")
+        try:
+            self._hub_assistant_file_ids = json.loads(hub_file_ids_json)
+        except json.JSONDecodeError:
+            print(f"WARNING: Invalid JSON format in hub_assistant_file_ids: {hub_file_ids_json}")
+            self._hub_assistant_file_ids = {}
+        
+        # Legacy file_ids for backward compatibility
+        self.FILE_IDS = environ.get("file_ids")
         self.file_ids = environ.get("file_ids")
         
         # Azure Blob Storage Configuration
@@ -61,3 +74,66 @@ class DefaultConfig(MsalAuthConfiguration):
         
         # Azure Key Vault Configuration
         self.az_key_vault_name = environ.get("akv")
+    
+    def normalize_hub_name(self, hub_name: str) -> str:
+        """
+        Normalize hub name by removing spaces, special characters, and converting to lowercase.
+        
+        Args:
+            hub_name: The original hub name (e.g., "New Delhi", "BENGALURU", "mumbai")
+            
+        Returns:
+            Normalized hub name (e.g., "newdelhi", "bengaluru", "mumbai")
+        """
+        if not hub_name:
+            return ""
+        # Remove spaces and special characters, keep only alphanumeric, convert to lowercase
+        return re.sub(r'[^a-zA-Z0-9]', '', hub_name).lower()
+    
+    def get_hub_assistant_file_id(self, hub_name: str) -> str:
+        """
+        Get the assistant file ID for a specific hub.
+        
+        Args:
+            hub_name: The hub name (case-insensitive, spaces/special chars will be normalized)
+            
+        Returns:
+            The assistant file ID for the hub, or None if not found
+        """
+        if not hub_name:
+            return None
+            
+        normalized_name = self.normalize_hub_name(hub_name)
+        file_id = self._hub_assistant_file_ids.get(normalized_name)
+        
+        if not file_id:
+            # Log available keys for debugging
+            available_keys = list(self._hub_assistant_file_ids.keys())
+            print(f"WARNING: No assistant file ID found for hub '{hub_name}' (normalized: '{normalized_name}')")
+            print(f"Available hub keys: {available_keys}")
+            
+        return file_id
+    
+    def get_hub_assistant_id(self, hub_name: str) -> str:
+        """
+        Get the assistant ID for a specific hub.
+        Currently returns the global assistant ID, but can be extended to support hub-specific assistants.
+        
+        Args:
+            hub_name: The hub name 
+            
+        Returns:
+            The assistant ID (currently global, but extensible for hub-specific assistants)
+        """
+        # For now, return the global assistant ID
+        # This method is created for future extensibility if different hubs need different assistants
+        return self.az_assistant_id
+    
+    def get_all_hub_file_ids(self) -> dict:
+        """
+        Get all hub assistant file IDs.
+        
+        Returns:
+            Dictionary mapping normalized hub names to file IDs
+        """
+        return self._hub_assistant_file_ids.copy()

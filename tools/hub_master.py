@@ -48,7 +48,7 @@ def get_hub_masterdata(config: RunnableConfig) -> str:
     az_storage_rg_name = l_config.az_storage_rg_name
 
     # remove spaces and special characters from the city name
-    cityname = ("".join(e for e in cityname if e.isalnum())).lower()
+    cityname = l_config.normalize_hub_name(cityname)
     
     file_name = f"hub-{cityname}.md"
     response = None
@@ -124,3 +124,20 @@ def get_hub_masterdata(config: RunnableConfig) -> str:
         )
         raise Exception("Issue accessing Master data for the current Hub Location. Please contact the TAB administrator.")
     return response
+
+
+@tool
+def get_hub_assistant_file_id(config: RunnableConfig) -> str:
+    """
+    Get the assistant file ID for the current hub location.
+    """
+    configuration = config.get("configurable", {})
+    cityname = configuration.get("hub_location", None)
+    if not cityname:
+        raise ValueError("No Hub Location indicated.")
+    
+    file_id = l_config.get_hub_assistant_file_id(cityname)
+    if not file_id:
+        raise ValueError(f"No assistant file ID configured for hub location: {cityname}")
+    
+    return file_id

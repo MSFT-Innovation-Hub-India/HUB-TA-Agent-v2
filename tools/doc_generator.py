@@ -69,12 +69,21 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
     try:
         configuration = config.get("configurable", {})
         l_thread_id = configuration.get("asst_thread_id", None)
+        hub_location = configuration.get("hub_location", None)
+        
         if not l_thread_id:
             logger.error("active thread not available in the Assistants API Session.")
             raise ValueError(
                 "active thread not available in the Assistants API Session."
             )
         response = ""
+
+        # Get hub-specific assistant ID and file ID if needed
+        assistant_id = l_config.get_hub_assistant_id(hub_location) if hub_location else l_config.az_assistant_id
+        hub_file_id = l_config.get_hub_assistant_file_id(hub_location) if hub_location else None
+        
+        if hub_location and not hub_file_id:
+            logger.warning(f"No hub-specific file ID found for location: {hub_location}, using default assistant")
 
         # Initialize Azure OpenAI Service client with Entra ID authentication
         token_provider = get_bearer_token_provider(
@@ -88,7 +97,7 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
         )
 
         # Get the assistant and thread instance for the session
-        client.beta.assistants.retrieve(assistant_id=l_config.az_assistant_id)
+        client.beta.assistants.retrieve(assistant_id=assistant_id)
         l_thread = client.beta.threads.retrieve(thread_id=l_thread_id)
         logger.debug(
             f"Debug - Word Document Generator Agent retrieved successfully, along with the session thread of the user {l_thread.id}"
@@ -107,7 +116,7 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
         # create a run
         run = client.beta.threads.runs.create(
             thread_id=l_thread.id,
-            assistant_id=l_config.az_assistant_id,
+            assistant_id=assistant_id,
             temperature=0.3,
         )
         logger.debug("Word Document Generator Agent: called thread run ...")
