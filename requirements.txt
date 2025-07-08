@@ -1,0 +1,14 @@
+--index-url https://test.pypi.org/simple
+--extra-index-url https://pypi.org/simple
+
+# direct deps
+python-dotenv
+pydantic>=2.10.4
+
+microsoft-agents-core==0.0.0a3
+microsoft-agents-authorization==0.0.0a3
+microsoft-agents-connector==0.0.0a3
+microsoft-agents-builder==0.0.0a3
+microsoft-agents-authentication-msal==0.0.0a3
+microsoft-agents-hosting-aiohttp==0.0.0a3
+microsoft-agents-storage==0.0.0a3
