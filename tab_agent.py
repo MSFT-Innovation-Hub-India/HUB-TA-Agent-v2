@@ -163,16 +163,25 @@ class TABAgent(ActivityHandler):
             agent_response = await self._handle_agenda_creation_flow(user_message, conversation_config, turn_context)
             
         else:
-            # Handle agenda preparation request
-            if any(phrase in user_message.lower() for phrase in ["agenda", "prepare agenda", "innovation hub session", "meeting"]):
-                if user_profile.get("city"):
-                    agent_response = "I can help you prepare an agenda for your Innovation Hub session. Please provide your meeting notes starting with '### Internal Briefing Notes ###' or '### External Briefing Notes ###'."
-                    user_profile["waiting_for_meeting_notes"] = True
-                else:
-                    agent_response = f"To prepare an agenda, I first need to know which Innovation Hub city you're associated with. Please choose from: {self.config.hub_cities.replace(', ', ', ')}"
+            # For all other interactions, use the LangGraph system for intelligent responses
+            # This provides consistent, context-aware responses powered by LLM
+            if user_profile.get("name") and user_profile.get("city"):
+                # User is fully set up, route to LangGraph for intelligent conversation
+                agent_response = await self._handle_agenda_creation_flow(user_message, conversation_config, turn_context)
+                # If this was an agenda-related request, mark the flow as active
+                if any(phrase in user_message.lower() for phrase in ["agenda", "prepare agenda", "innovation hub session", "meeting", "briefing"]):
+                    user_profile["agenda_flow_active"] = True
             else:
-                # Generate regular response
-                agent_response = await self._generate_response(user_message, user_profile, conversation_history)
+                # Handle agenda preparation request for users not fully set up
+                if any(phrase in user_message.lower() for phrase in ["agenda", "prepare agenda", "innovation hub session", "meeting"]):
+                    if user_profile.get("city"):
+                        agent_response = "I can help you prepare an agenda for your Innovation Hub session. Please provide your meeting notes starting with '### Internal Briefing Notes ###' or '### External Briefing Notes ###'."
+                        user_profile["waiting_for_meeting_notes"] = True
+                    else:
+                        agent_response = f"To prepare an agenda, I first need to know which Innovation Hub city you're associated with. Please choose from: {self.config.hub_cities.replace(', ', ', ')}"
+                else:
+                    # For general conversation when user isn't fully set up, provide a helpful response
+                    agent_response = f"I understand you said: '{user_message}'. I'm here to help you prepare agendas for Innovation Hub sessions. How can I assist you?"
         
         # Add agent response to conversation history with string timestamp
         conversation_history.append({
@@ -226,73 +235,6 @@ class TABAgent(ActivityHandler):
                     welcome_message = "Hello! I'm your TAB (Technical Architect Buddy) Agent. I can help you prepare agendas for Innovation Hub sessions. What's your name?"
                 
                 await turn_context.send_activity(MessageFactory.text(welcome_message))
-
-    async def _generate_response(self, user_message: str, user_profile: dict, conversation_history: list) -> str:
-        """
-        Generate a response based on user message, profile, and conversation history.
-        Replace this with your actual agent logic.
-        
-        Args:
-            user_message: The current user message
-            user_profile: User's profile data
-            conversation_history: List of previous conversation exchanges
-            
-        Returns:
-            Generated response string
-        """
-        # Simple response logic - replace with your actual agent implementation
-        message_lower = user_message.lower()
-        
-        # Handle greetings
-        if any(greeting in message_lower for greeting in ["hello", "hi", "hey"]):
-            if user_profile.get("name"):
-                return f"Hello {user_profile['name']}! How can I assist you today?"
-            else:
-                return "Hello! What's your name?"
-        
-        # Handle conversation count inquiry
-        if "how many" in message_lower and "message" in message_lower:
-            return f"We've exchanged {user_profile['conversation_count']} messages so far!"
-        
-        # Handle conversation history inquiry
-        if "history" in message_lower or "previous" in message_lower:
-            if len(conversation_history) > 2:  # More than just the current exchange
-                return f"We've been talking about: {', '.join([msg['content'][:30] + '...' for msg in conversation_history[-6:-1] if msg['role'] == 'user'])}"
-            else:
-                return "This is the beginning of our conversation!"
-        
-        # Handle joke requests
-        if "joke" in message_lower:
-            return "Why don't scientists trust atoms? Because they make up everything! 😄"
-        
-        # Handle name inquiry
-        if "my name" in message_lower or "what is my name" in message_lower:
-            if user_profile.get("name"):
-                return f"Your name is {user_profile['name']}!"
-            else:
-                return "I don't know your name yet. What should I call you?"
-        
-        # Handle city inquiry
-        if "my city" in message_lower or "which city" in message_lower or "innovation hub" in message_lower:
-            if user_profile.get("city"):
-                return f"You're associated with the {user_profile['city']} Innovation Hub!"
-            else:
-                return f"I don't know which Innovation Hub city you're associated with yet. Please choose from: {self.config.hub_cities.replace(', ', ', ')}"
-        
-        # Handle profile inquiry
-        if "my profile" in message_lower or "my information" in message_lower:
-            profile_info = f"Here's your profile:\n- Name: {user_profile.get('name', 'Not set')}\n- Innovation Hub City: {user_profile.get('city', 'Not set')}\n- Messages exchanged: {user_profile.get('conversation_count', 0)}"
-            return profile_info
-        
-        # Handle agenda-related queries
-        if any(phrase in message_lower for phrase in ["agenda", "innovation hub", "meeting", "briefing"]):
-            if user_profile.get("city"):
-                return "I can help you prepare an agenda for your Innovation Hub session. Please provide your meeting notes starting with '### Internal Briefing Notes ###' or '### External Briefing Notes ###'."
-            else:
-                return f"To prepare an agenda, I first need to know which Innovation Hub city you're associated with. Please choose from: {self.config.hub_cities.replace(', ', ', ')}"
-        
-        # Default response
-        return f"I understand you said: '{user_message}'. I'm here to help you prepare agendas for Innovation Hub sessions. How can I assist you?"
 
     async def _validate_city_with_gpt(self, user_input: str) -> str:
         """
@@ -350,50 +292,6 @@ class TABAgent(ActivityHandler):
             import traceback
             traceback.print_exc()
             return None
-
-    def _simple_city_match(self, user_input: str) -> str:
-        """
-        Simple fallback city matching using string comparison.
-        
-        Args:
-            user_input: User's input that should match a city
-            
-        Returns:
-            Matched city name or None if no match found
-        """
-        user_input_lower = user_input.lower().strip()
-        available_cities = [city.strip() for city in self.config.hub_cities.split(',')]
-        
-        # Try exact match first
-        for city in available_cities:
-            if city.lower() == user_input_lower:
-                print(f"DEBUG: Simple exact match found: {city}")
-                return city
-        
-        # Try partial match
-        for city in available_cities:
-            if user_input_lower in city.lower() or city.lower() in user_input_lower:
-                print(f"DEBUG: Simple partial match found: {city}")
-                return city
-        
-        # Try common abbreviations
-        abbreviations = {
-            "nyc": "New York",
-            "sf": "Silicon Valley",
-            "la": None,  # Not in our list
-            "chi": "Chicago",
-            "philly": "Philadelphia",
-            "dc": "Washington"
-        }
-        
-        if user_input_lower in abbreviations:
-            match = abbreviations[user_input_lower]
-            if match:
-                print(f"DEBUG: Simple abbreviation match found: {match}")
-                return match
-        
-        print(f"DEBUG: No simple match found for: {user_input}")
-        return None
 
     async def _clear_state_if_needed(self, turn_context: TurnContext):
         """
