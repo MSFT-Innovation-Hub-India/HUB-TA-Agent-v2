@@ -12,6 +12,9 @@ from microsoft.agents.authorization import (
     ClaimsIdentity,
 )
 from microsoft.agents.authentication.msal import MsalAuth
+from microsoft.agents.storage.memory_storage import MemoryStorage 
+from microsoft.agents.builder.state.user_state import UserState
+from microsoft.agents.builder.state.agent_state import AgentState
 
 from tab_agent import TABAgent
 from config import DefaultConfig
@@ -19,7 +22,6 @@ from config import DefaultConfig
 load_dotenv()
 
 AUTH_PROVIDER = MsalAuth(DefaultConfig())
-
 
 class DefaultConnection(Connections):
     def get_default_connection(self) -> AccessTokenProviderBase:
@@ -33,22 +35,26 @@ class DefaultConnection(Connections):
     def get_connection(self, connection_name: str) -> AccessTokenProviderBase:
         pass
 
-
 CONFIG = DefaultConfig()
 CHANNEL_CLIENT_FACTORY = RestChannelServiceClientFactory(CONFIG, DefaultConnection())
 
-# Create adapter.
+# Set up in-memory storage (replace with your desired Storage for production)
+storage = MemoryStorage()
+
+# Create user state and conversation state
+user_state = UserState(storage)
+conversation_state = UserState(storage)  # Using UserState for conversation config
+
+# Create adapter
 ADAPTER = CloudAdapter(CHANNEL_CLIENT_FACTORY)
 
-# Create the Agent
-AGENT = TABAgent()
-
+# Create the Agent with state management
+AGENT = TABAgent(user_state, conversation_state)
 
 # Listen for incoming requests on /api/messages
 async def messages(req: Request) -> Response:
     adapter: CloudAdapter = req.app["adapter"]
     return await adapter.process(req, AGENT)
-
 
 APP = Application(middlewares=[jwt_authorization_middleware])
 APP.router.add_post("/api/messages", messages)
@@ -60,11 +66,3 @@ if __name__ == "__main__":
         run_app(APP, host="localhost", port=CONFIG.PORT)
     except Exception as error:
         raise error
-
-...
-# if __name__ == "__main__":
-#     # ACA injects PORT when ingress is enabled; fall back to 3978 locally
-#     port = int(os.getenv("PORT", 3978))
-
-#     # Bind to 0.0.0.0 so Envoy can reach the process
-#     run_app(APP, host="0.0.0.0", port=port)
