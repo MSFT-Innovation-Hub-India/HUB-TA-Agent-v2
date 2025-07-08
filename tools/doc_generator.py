@@ -2,7 +2,7 @@ import os
 import traceback
 from langchain_core.tools import tool
 from openai import AzureOpenAI
-import config as l_config
+from config import DefaultConfig
 from langchain_core.runnables import RunnableConfig
 import time
 import json
@@ -18,12 +18,19 @@ from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from azure.mgmt.storage import StorageManagementClient
 from azure.mgmt.storage.models import StorageAccountUpdateParameters
 import datetime
-import config
 from util.az_blob_account_access import set_blob_account_public_access
 
+# Create config instance
+l_config = DefaultConfig()
+config = l_config  # For backward compatibility
 
 logger = logging.getLogger(__name__)
-logger.addHandler(AzureLogHandler(connection_string=l_config.az_application_insights_key))
+
+# Only add Azure log handler if the connection string is available
+if l_config.az_application_insights_key:
+    logger.addHandler(AzureLogHandler(connection_string=l_config.az_application_insights_key))
+else:
+    print("WARNING: Azure Application Insights key not found in doc_generator, skipping Azure logging")
 
 # Set the logging level based on the configuration
 log_level_str = l_config.log_level.upper()

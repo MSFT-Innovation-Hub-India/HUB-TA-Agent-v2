@@ -1,9 +1,18 @@
-import config
+from config import DefaultConfig
 import logging
 from opencensus.ext.azure.log_exporter import AzureLogHandler
 
+# Create config instance
+config = DefaultConfig()
+
 logger = logging.getLogger(__name__)
-logger.addHandler(AzureLogHandler(connection_string=config.az_application_insights_key))
+
+# Only add Azure log handler if the connection string is available
+if config.az_application_insights_key:
+    logger.addHandler(AzureLogHandler(connection_string=config.az_application_insights_key))
+else:
+    print("WARNING: Azure Application Insights key not found in agenda_selector, skipping Azure logging")
+
 # Set the logging level based on the configuration
 log_level_str = config.log_level.upper()
 log_level = getattr(logging, log_level_str, logging.INFO)

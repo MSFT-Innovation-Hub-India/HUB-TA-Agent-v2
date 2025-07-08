@@ -5,22 +5,30 @@ import logging
 from opencensus.ext.azure.log_exporter import AzureLogHandler
 import time
 import traceback
-import config
+from config import DefaultConfig
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import (
     generate_blob_sas,
     BlobSasPermissions,
 )
 
+# Create config instance
+config = DefaultConfig()
 
 logger = logging.getLogger(__name__)
-logger.addHandler(
-    AzureLogHandler(connection_string=config.az_application_insights_key)
-)
+
+# Only add Azure log handler if the connection string is available
+if config.az_application_insights_key:
+    logger.addHandler(
+        AzureLogHandler(connection_string=config.az_application_insights_key)
+    )
+else:
+    print("WARNING: Azure Application Insights key not found, skipping Azure logging")
 
 # Set the logging level based on the configuration
 log_level_str = config.log_level.upper()
 log_level = getattr(logging, log_level_str, logging.INFO)
+logger.setLevel(log_level)
 logger.setLevel(log_level)
 # logger.debug(f"Logging level set to {log_level_str}")
 # logger.setLevel(logging.DEBUG)

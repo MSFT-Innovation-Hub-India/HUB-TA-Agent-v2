@@ -1,5 +1,5 @@
 from azure.identity import DefaultAzureCredential
-import config as l_config
+from config import DefaultConfig
 from azure.mgmt.storage import StorageManagementClient
 from azure.mgmt.storage.models import StorageAccountUpdateParameters
 from azure.storage.blob import BlobServiceClient
@@ -11,10 +11,18 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from util.az_blob_account_access import set_blob_account_public_access
 
+# Create config instance
+l_config = DefaultConfig()
+
 logger = logging.getLogger(__name__)
-logger.addHandler(
-    AzureLogHandler(connection_string=l_config.az_application_insights_key)
-)
+
+# Only add Azure log handler if the connection string is available
+if l_config.az_application_insights_key:
+    logger.addHandler(
+        AzureLogHandler(connection_string=l_config.az_application_insights_key)
+    )
+else:
+    print("WARNING: Azure Application Insights key not found in hub_master, skipping Azure logging")
 
 # Set the logging level based on the configuration
 log_level_str = l_config.log_level.upper()

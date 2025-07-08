@@ -36,8 +36,10 @@ from IPython.display import display, Image
 import logging
 from opencensus.ext.azure.log_exporter import AzureLogHandler
 from tools.hub_master import get_hub_masterdata
-import config
+from config import DefaultConfig
 
+# Initialize config
+config = DefaultConfig()
 
 az_openai_endpoint = config.az_openai_endpoint
 az_openai_deployment_name = config.az_deployment_name
@@ -46,11 +48,18 @@ az_openai_version = config.az_openai_api_version
 hub_cities = config.hub_cities
 
 logger = logging.getLogger(__name__)
-logger.addHandler(
-    AzureLogHandler(connection_string=config.az_application_insights_key)
-)
+
+# Only add Azure log handler if the connection string is available
+if config.az_application_insights_key:
+    logger.addHandler(
+        AzureLogHandler(connection_string=config.az_application_insights_key)
+    )
+else:
+    print("WARNING: Azure Application Insights key not found in graph_build, skipping Azure logging")
+
 log_level_str = config.log_level.upper()
 log_level = getattr(logging, log_level_str, logging.INFO)
+logger.setLevel(log_level)
 logger.setLevel(log_level)
 # logger.debug(f"Logging level set to {log_level_str}")
 # logger.setLevel(logging.DEBUG)
