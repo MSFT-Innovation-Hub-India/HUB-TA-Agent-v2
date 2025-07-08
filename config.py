@@ -59,5 +59,5 @@ class DefaultConfig(MsalAuthConfiguration):
         self.az_subscription_id = environ.get("az_subscription_id")
         self.az_storage_rg_name = environ.get("az_storage_rg")  # Using same as az_storage_rg
         
-        # Logging Configuration
-        self.LOG_LEVEL = environ.get("log_level", "INFO")
+        # Azure Key Vault Configuration
+        self.az_key_vault_name = environ.get("akv")
