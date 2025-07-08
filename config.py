@@ -53,6 +53,7 @@ class DefaultConfig(MsalAuthConfiguration):
         
         # Configuration for tools compatibility
         self.az_storage_account_name = environ.get("az_blob_storage_account_name")
+        self.az_storage_container_name = environ.get("az_blob_container_name")
         self.az_blob_container_name_hubmaster = environ.get("az_blob_container_name_hubmaster")
         self.az_blob_container_name_state = environ.get("az_blob_container_name_state")
         self.az_subscription_id = environ.get("az_subscription_id")

@@ -30,9 +30,9 @@ class TABAgent(ActivityHandler):
             "https://cognitiveservices.azure.com/.default",
         )
         self.openai_client = AsyncAzureOpenAI(
-            azure_endpoint=self.config.AZURE_OPENAI_ENDPOINT,
+            azure_endpoint=self.config.az_openai_endpoint,
             azure_ad_token_provider=token_provider,
-            api_version=self.config.AZURE_OPENAI_API_VERSION
+            api_version=self.config.az_openai_api_version
         )
         print("INFO: Using managed identity for Azure OpenAI authentication")
         
@@ -144,7 +144,7 @@ class TABAgent(ActivityHandler):
             user_profile["name"] = user_message.strip()
             # Also update the config with customer_name
             conversation_config["configurable"]["customer_name"] = user_message.strip()
-            agent_response = f"Nice to meet you, {user_profile['name']}! Which Innovation Hub city are you associated with? Here are the available cities:\n\n{self.config.HUB_CITIES.replace(', ', ', ')}"
+            agent_response = f"Nice to meet you, {user_profile['name']}! Which Innovation Hub city are you associated with? Here are the available cities:\n\n{self.config.hub_cities.replace(', ', ', ')}"
             
         elif user_profile.get("name") is not None and user_profile.get("city") is None:
             # Validate city with GPT-4o
@@ -156,7 +156,7 @@ class TABAgent(ActivityHandler):
                 agent_response = f"Thanks! I've set your Innovation Hub location to {matched_city}.\n\nWould you like to prepare an agenda for an Innovation Hub session? If yes, please provide your meeting notes starting with '### Internal Briefing Notes ###' or '### External Briefing Notes ###'."
                 user_profile["waiting_for_meeting_notes"] = True
             else:
-                agent_response = f"I couldn't find that city in our list of Innovation Hub locations. Please provide a valid Innovation Hub location from this list: {self.config.HUB_CITIES}"
+                agent_response = f"I couldn't find that city in our list of Innovation Hub locations. Please provide a valid Innovation Hub location from this list: {self.config.hub_cities}"
                 
         elif user_profile.get("agenda_flow_active", False):
             # User is in the middle of agenda creation flow - use LangGraph
@@ -169,7 +169,7 @@ class TABAgent(ActivityHandler):
                     agent_response = "I can help you prepare an agenda for your Innovation Hub session. Please provide your meeting notes starting with '### Internal Briefing Notes ###' or '### External Briefing Notes ###'."
                     user_profile["waiting_for_meeting_notes"] = True
                 else:
-                    agent_response = f"To prepare an agenda, I first need to know which Innovation Hub city you're associated with. Please choose from: {self.config.HUB_CITIES.replace(', ', ', ')}"
+                    agent_response = f"To prepare an agenda, I first need to know which Innovation Hub city you're associated with. Please choose from: {self.config.hub_cities.replace(', ', ', ')}"
             else:
                 # Generate regular response
                 agent_response = await self._generate_response(user_message, user_profile, conversation_history)
@@ -277,7 +277,7 @@ class TABAgent(ActivityHandler):
             if user_profile.get("city"):
                 return f"You're associated with the {user_profile['city']} Innovation Hub!"
             else:
-                return f"I don't know which Innovation Hub city you're associated with yet. Please choose from: {self.config.HUB_CITIES.replace(', ', ', ')}"
+                return f"I don't know which Innovation Hub city you're associated with yet. Please choose from: {self.config.hub_cities.replace(', ', ', ')}"
         
         # Handle profile inquiry
         if "my profile" in message_lower or "my information" in message_lower:
@@ -289,7 +289,7 @@ class TABAgent(ActivityHandler):
             if user_profile.get("city"):
                 return "I can help you prepare an agenda for your Innovation Hub session. Please provide your meeting notes starting with '### Internal Briefing Notes ###' or '### External Briefing Notes ###'."
             else:
-                return f"To prepare an agenda, I first need to know which Innovation Hub city you're associated with. Please choose from: {self.config.HUB_CITIES.replace(', ', ', ')}"
+                return f"To prepare an agenda, I first need to know which Innovation Hub city you're associated with. Please choose from: {self.config.hub_cities.replace(', ', ', ')}"
         
         # Default response
         return f"I understand you said: '{user_message}'. I'm here to help you prepare agendas for Innovation Hub sessions. How can I assist you?"
@@ -315,19 +315,19 @@ class TABAgent(ActivityHandler):
             messages = [
                 {
                     "role": "system",
-                    "content": f'You are a city validation assistant. Based on the user input identify the match from the list of valid Innovation Hub location cities: {self.config.HUB_CITIES}. Return a JSON response in the format {{"city": "matched_city_name"}} or {{"city": null}} if no match. Use your knowledge of the cities to validate the user input, even if the user provides synonyms for the city names.',
+                    "content": f'You are a city validation assistant. Based on the user input identify the match from the list of valid Innovation Hub location cities: {self.config.hub_cities}. Return a JSON response in the format {{"city": "matched_city_name"}} or {{"city": null}} if no match. Use your knowledge of the cities to validate the user input, even if the user provides synonyms for the city names.',
                 },
                 {
                     "role": "user",
-                    "content": f"Is '{user_input}' a valid city in this list: {self.config.HUB_CITIES}?",
+                    "content": f"Is '{user_input}' a valid city in this list: {self.config.hub_cities}?",
                 },
             ]
 
-            print(f"DEBUG: Making GPT call with model: {self.config.AZURE_OPENAI_DEPLOYMENT}")
+            print(f"DEBUG: Making GPT call with model: {self.config.az_deployment_name}")
             
             # Get the validation from Azure OpenAI
             response = await self.openai_client.chat.completions.create(
-                model=self.config.AZURE_OPENAI_DEPLOYMENT,
+                model=self.config.az_deployment_name,
                 messages=messages,
                 response_format={"type": "json_object"},
             )
@@ -362,7 +362,7 @@ class TABAgent(ActivityHandler):
             Matched city name or None if no match found
         """
         user_input_lower = user_input.lower().strip()
-        available_cities = [city.strip() for city in self.config.HUB_CITIES.split(',')]
+        available_cities = [city.strip() for city in self.config.hub_cities.split(',')]
         
         # Try exact match first
         for city in available_cities:
@@ -427,11 +427,23 @@ class TABAgent(ActivityHandler):
                 # Create a new thread ID for LangGraph
                 l_graph_thread_id = str(uuid.uuid4())
                 
+                # Create a proper OpenAI thread for the Assistants API
+                try:
+                    openai_thread = await self.openai_client.beta.threads.create()
+                    l_asst_thread_id = openai_thread.id
+                    print(f"DEBUG: Created new OpenAI thread: {l_asst_thread_id}")
+                except Exception as openai_error:
+                    print(f"ERROR: Failed to create OpenAI thread: {openai_error}")
+                    # Fallback to a mock thread ID format that won't cause errors
+                    l_asst_thread_id = f"thread_{str(uuid.uuid4())}"
+                    print(f"DEBUG: Using fallback thread ID: {l_asst_thread_id}")
+                
                 # Update configuration for the user session to bootstrap the multi-agent system
                 conversation_config["configurable"]["thread_id"] = l_graph_thread_id
-                conversation_config["configurable"]["asst_thread_id"] = str(uuid.uuid4())
+                conversation_config["configurable"]["asst_thread_id"] = l_asst_thread_id
                 
                 print(f"DEBUG: Created new thread_id: {l_graph_thread_id}")
+                print(f"DEBUG: Created new asst_thread_id: {l_asst_thread_id}")
                 print(f"DEBUG: User name: {conversation_config['configurable']['customer_name']}")
             
             # Use the graph to process the user input and get response
