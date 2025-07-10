@@ -49,6 +49,8 @@ class TABAgent(ActivityHandler):
         )
 
     async def on_message_activity(self, turn_context: TurnContext):
+        
+
         """
         Handle incoming message activities with proper state management and thread_id freshness checking.
         """
@@ -84,6 +86,32 @@ class TABAgent(ActivityHandler):
                 "waiting_for_meeting_notes": False,
             },
         )
+
+        # Check if user is conversing from Microsoft Teams and auto-populate name
+        if user_profile["name"] is None:
+            # If the Microsoft Teams context is available, get the sender name from the Teams context
+            try:
+                if turn_context.activity.from_property and turn_context.activity.from_property.id:
+                    # Check if this is a Teams channel
+                    if turn_context.activity.channel_id == "msteams":
+                        # Try to get member info from Teams
+                        try:
+                            # For Microsoft Agents SDK, we can try to access the member name directly
+                            if hasattr(turn_context.activity.from_property, 'name') and turn_context.activity.from_property.name:
+                                sender_name = turn_context.activity.from_property.name
+                                user_profile["name"] = sender_name
+                                print(f"DEBUG: {sender_name} has commenced a session with TAB from Microsoft Teams")
+                            # Alternative: Try to get from channel data if available
+                            elif (turn_context.activity.channel_data and 
+                                  isinstance(turn_context.activity.channel_data, dict) and
+                                  "tenant" in turn_context.activity.channel_data):
+                                # This is Teams context, but we might need to extract name differently
+                                print("DEBUG: Teams context detected but name extraction needs refinement")
+                        except Exception as teams_error:
+                            print(f"DEBUG: Error extracting Teams member info: {teams_error}")
+            except Exception as e:
+                print(f"DEBUG: Error getting member name from Teams context: {str(e)}")
+                pass
 
         # Get conversation config (create if doesn't exist)
         conversation_config = await self.config_accessor.get(
@@ -186,12 +214,17 @@ class TABAgent(ActivityHandler):
         elif user_profile.get("name") is None and not any(
             word in user_message.lower() for word in ["hello", "hi", "hey"]
         ):
+            # Only set name from user input if Teams didn't already populate it
             user_profile["name"] = user_message.strip()
             # Also update the config with customer_name
             conversation_config["configurable"]["customer_name"] = user_message.strip()
             agent_response = f"Nice to meet you, {user_profile['name']}! Which Innovation Hub city are you associated with? Here are the available cities:\n\n{self.config.hub_cities.replace(', ', ', ')}"
 
         elif user_profile.get("name") is not None and user_profile.get("city") is None:
+            # If name was auto-populated from Teams, ask for city directly
+            if conversation_config["configurable"].get("customer_name") is None:
+                conversation_config["configurable"]["customer_name"] = user_profile["name"]
+            
             # Validate city with GPT-4o
             matched_city = await self._validate_city_with_gpt(user_message)
             if matched_city:
@@ -303,9 +336,13 @@ class TABAgent(ActivityHandler):
                 if user_profile.get("name") and user_profile.get("city"):
                     welcome_message = f"Welcome back, {user_profile['name']} from {user_profile['city']} Innovation Hub! Would you like to prepare an agenda for an Innovation Hub session?"
                 elif user_profile.get("name"):
-                    welcome_message = f"Welcome back, {user_profile['name']}!"
+                    welcome_message = f"Welcome back, {user_profile['name']}! Which Innovation Hub city are you associated with? Here are the available cities:\n\n{self.config.hub_cities.replace(', ', ', ')}"
                 elif user_profile["conversation_count"] == 0:
-                    welcome_message = "Hello! I'm your TAB (Technical Architect Buddy) Agent. I can help you prepare agendas for Innovation Hub sessions. What's your name?"
+                    # Check if this is Teams and try to auto-detect name
+                    if turn_context.activity.channel_id == "msteams":
+                        welcome_message = "Hello! I'm your TAB (Technical Architect Buddy) Agent. I can help you prepare agendas for Innovation Hub sessions. Which Innovation Hub city are you associated with?"
+                    else:
+                        welcome_message = "Hello! I'm your TAB (Technical Architect Buddy) Agent. I can help you prepare agendas for Innovation Hub sessions. What's your name?"
 
                 await turn_context.send_activity(MessageFactory.text(welcome_message))
 

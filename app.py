@@ -56,13 +56,20 @@ async def messages(req: Request) -> Response:
     adapter: CloudAdapter = req.app["adapter"]
     return await adapter.process(req, AGENT)
 
+# Health check endpoint for monitoring
+# async def health_check(req: Request) -> Response:
+#     return Response(text="OK", status=200)
+
 APP = Application(middlewares=[jwt_authorization_middleware])
 APP.router.add_post("/api/messages", messages)
+# APP.router.add_get("/health", health_check)
 APP["agent_configuration"] = CONFIG
 APP["adapter"] = ADAPTER
 
 if __name__ == "__main__":
     try:
-        run_app(APP, host="localhost", port=CONFIG.PORT)
+        # Use 0.0.0.0 to accept connections from any interface (required for containers)
+        run_app(APP, host="0.0.0.0", port=3978)
     except Exception as error:
+        print("Error starting the application: check the  logs too!", error)
         raise error
