@@ -196,8 +196,32 @@ class TABAgent(ActivityHandler):
         # Handle different flow states
         agent_response = None
 
-        # Check if user is providing meeting notes for agenda creation
-        if user_profile.get("waiting_for_meeting_notes", False) and (
+        # Priority 1: Check if name is known but city is missing - ask for city regardless of user message
+        if user_profile.get("name") is not None and user_profile.get("city") is None:
+            # Ensure customer_name is set in config
+            if conversation_config["configurable"].get("customer_name") is None:
+                conversation_config["configurable"]["customer_name"] = user_profile["name"]
+            
+            # Validate city with GPT-4o only if user message looks like a city
+            # Otherwise, just ask for the city
+            city_keywords = ["city", "hub", "location", "bangalore", "bengaluru", "atlanta", "boston", "chicago", "dallas", "detroit", "houston", "irvine", "minneapolis", "new york", "philadelphia", "seattle", "silicon valley", "st. louis", "toronto", "washington", "mexico city", "sao paulo", "amsterdam", "brussels", "copenhagen", "dubai", "herzliya", "istanbul", "london", "johannesburg", "milan", "munich", "oslo", "paris", "stockholm", "warsaw", "zurich", "beijing", "seoul", "shanghai", "singapore", "sydney", "taipei", "tokyo"]
+            
+            if any(keyword in user_message.lower() for keyword in city_keywords):
+                matched_city = await self._validate_city_with_gpt(user_message)
+                if matched_city:
+                    user_profile["city"] = matched_city
+                    # Also update the config with hub_location
+                    conversation_config["configurable"]["hub_location"] = matched_city
+                    agent_response = f"Thanks! I've set your Innovation Hub location to {matched_city}.\n\nWould you like to prepare an agenda for an Innovation Hub session? If yes, please provide your meeting notes starting with '### Internal Briefing Notes ###' or '### External Briefing Notes ###'."
+                    user_profile["waiting_for_meeting_notes"] = True
+                else:
+                    agent_response = f"I couldn't find that city in our list of Innovation Hub locations. Please provide a valid Innovation Hub location from this list: {self.config.hub_cities}"
+            else:
+                # Ignore user message and ask for city
+                agent_response = f"Before we get started, {user_profile['name']}, which Innovation Hub city are you associated with? Here are the available cities:\n\n{self.config.hub_cities.replace(', ', ', ')}"
+
+        # Priority 2: Check if user is providing meeting notes for agenda creation
+        elif user_profile.get("waiting_for_meeting_notes", False) and (
             "### Internal Briefing Notes ###" in user_message
             or "### External Briefing Notes ###" in user_message
             or "briefing" in user_message.lower()
@@ -210,31 +234,13 @@ class TABAgent(ActivityHandler):
             user_profile["waiting_for_meeting_notes"] = False
             user_profile["agenda_flow_active"] = True
 
-        # Handle name and city setting logic before generating response
-        elif user_profile.get("name") is None and not any(
-            word in user_message.lower() for word in ["hello", "hi", "hey"]
-        ):
+        # Priority 3: Handle name setting for non-Teams channels (when name is None)
+        elif user_profile.get("name") is None:
             # Only set name from user input if Teams didn't already populate it
             user_profile["name"] = user_message.strip()
             # Also update the config with customer_name
             conversation_config["configurable"]["customer_name"] = user_message.strip()
             agent_response = f"Nice to meet you, {user_profile['name']}! Which Innovation Hub city are you associated with? Here are the available cities:\n\n{self.config.hub_cities.replace(', ', ', ')}"
-
-        elif user_profile.get("name") is not None and user_profile.get("city") is None:
-            # If name was auto-populated from Teams, ask for city directly
-            if conversation_config["configurable"].get("customer_name") is None:
-                conversation_config["configurable"]["customer_name"] = user_profile["name"]
-            
-            # Validate city with GPT-4o
-            matched_city = await self._validate_city_with_gpt(user_message)
-            if matched_city:
-                user_profile["city"] = matched_city
-                # Also update the config with hub_location
-                conversation_config["configurable"]["hub_location"] = matched_city
-                agent_response = f"Thanks! I've set your Innovation Hub location to {matched_city}.\n\nWould you like to prepare an agenda for an Innovation Hub session? If yes, please provide your meeting notes starting with '### Internal Briefing Notes ###' or '### External Briefing Notes ###'."
-                user_profile["waiting_for_meeting_notes"] = True
-            else:
-                agent_response = f"I couldn't find that city in our list of Innovation Hub locations. Please provide a valid Innovation Hub location from this list: {self.config.hub_cities}"
 
         elif user_profile.get("agenda_flow_active", False):
             # User is in the middle of agenda creation flow - use LangGraph
