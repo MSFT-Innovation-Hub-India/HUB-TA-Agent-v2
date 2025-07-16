@@ -15,6 +15,8 @@ from microsoft.agents.authentication.msal import MsalAuth
 from microsoft.agents.storage.memory_storage import MemoryStorage 
 from microsoft.agents.builder.state.user_state import UserState
 from microsoft.agents.builder.state.agent_state import AgentState
+from util.az_blob_storage import BlobStorage, TABBlobStorageSettings
+from azure.identity import DefaultAzureCredential
 
 from tab_agent import TABAgent
 from config import DefaultConfig
@@ -38,8 +40,20 @@ class DefaultConnection(Connections):
 CONFIG = DefaultConfig()
 CHANNEL_CLIENT_FACTORY = RestChannelServiceClientFactory(CONFIG, DefaultConnection())
 
-# Set up in-memory storage (replace with your desired Storage for production)
-storage = MemoryStorage()
+# Use Azure Blob Storage instead of MemoryStorage for persistent state across container instances
+try:
+    azure_credential = DefaultAzureCredential()
+    storage_settings = TABBlobStorageSettings(
+        container_name=CONFIG.az_blob_container_name_state,
+        account_url=f"https://{CONFIG.az_storage_account_name}.blob.core.windows.net",
+        credential=azure_credential
+    )
+    storage = BlobStorage(storage_settings)
+    print("Using Azure Blob Storage for persistent state")
+except Exception as e:
+    print(f"Failed to initialize Azure Blob Storage: {e}")
+    storage = MemoryStorage()
+    print("Falling back to MemoryStorage")
 
 # Create user state and conversation state
 user_state = UserState(storage)

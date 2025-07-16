@@ -26,5 +26,6 @@ ipython
 websockets
 azure-storage-blob
 azure-mgmt-storage
+jsonpickle
 # azure-keyvault-secrets
 # azure-mgmt-keyvault
