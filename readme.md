@@ -29,6 +29,14 @@ The application uses a conversational agent approach with multiple specialized c
 - **Document Generator Agent**: Creates and formats Word documents with the agenda
 - **State Management**: Manages user state and conversation context using Microsoft 365 Agents SDK state management
 
+
+## Solution Architecture
+
+
+
+![alt text](./images/architecture.png)
+
+
 ## Prerequisites
 - Python 3.12+
 - Azure OpenAI Service with GPT-4 deployment
@@ -80,6 +88,17 @@ The application uses a conversational agent approach with multiple specialized c
 5. **Document Creation**: The Document Generator Agent creates a formatted Word document
 6. **Delivery**: The final document is saved to Azure Blob Storage and can be shared with the customer
 7. **State Persistence**: Conversation state and user preferences are maintained across sessions
+
+## Multi Agent Design
+
+Here is the graph for the multi agent App
+
+![alt text](./images/graph-design.png)
+
+
+Here are the details of the role of each Agent in the Multi agent system, and how the workflow progresses.
+
+![alt text](./images/workflow.png)
 
 ## Configuration
 Key configuration parameters are set in [`config.py`](config.py) and include:
