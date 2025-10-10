@@ -550,15 +550,26 @@ def hub_master_info(state: State):
 
 
 def extract_user_name(state: State, config: RunnableConfig) -> dict:
-    """Extract user name from config and add it to state"""
-    # print("Extracting user name from config and setting to the Session cache")
-    if (
-        config
-        and "configurable" in config
-        and "customer_name" in config["configurable"]
-    ):
-        user_name = config["configurable"]["customer_name"]
-    # print(f"User name extracted: {user_name}")
+    """Extract user name from config and add it to state."""
+
+    user_name = None
+
+    if config and isinstance(config, dict):
+        configurable = config.get("configurable")
+        if isinstance(configurable, dict):
+            user_name = configurable.get("customer_name") or configurable.get("user_name")
+
+    if not user_name and state:
+        # fall back to existing state or profile data when available
+        user_name = state.get("user_name")
+        if not user_name:
+            profile = state.get("user_profile") or {}
+            if isinstance(profile, dict):
+                user_name = profile.get("name")
+
+    if not user_name:
+        user_name = "User"
+
     return {"user_name": user_name}
 
 

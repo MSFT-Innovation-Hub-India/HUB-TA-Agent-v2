@@ -1,5 +1,4 @@
 from os import environ
-from microsoft.agents.authentication.msal import AuthTypes, MsalAuthConfiguration
 from dotenv import load_dotenv
 import json
 import re
@@ -8,15 +7,18 @@ import re
 load_dotenv()
 
 
-class DefaultConfig(MsalAuthConfiguration):
+class DefaultConfig:
     """Agent Configuration"""
 
     def __init__(self) -> None:
-        self.AUTH_TYPE = AuthTypes.client_secret
-        self.TENANT_ID = "" or environ.get("TENANT_ID")
-        self.CLIENT_ID = "" or environ.get("CLIENT_ID")
-        self.CLIENT_SECRET = "" or environ.get("CLIENT_SECRET")
-        self.PORT = 3978
+        self.AUTH_TYPE = environ.get("AUTH_TYPE", "client_secret")
+        self.PORT = int(environ.get("PORT", "3978"))
+
+        # Tenant and app registration configuration (host + guest for Teams/Bot integration)
+        self.TENANT_ID = environ.get("TENANT_ID", "")
+        self.HOST_TENANT_ID = environ.get("HOST_TENANT_ID", "")
+        self.CLIENT_ID = environ.get("CLIENT_ID", "")
+        self.CLIENT_SECRET = environ.get("CLIENT_SECRET", "")
         
         # Azure OpenAI Configuration
         self.AZURE_OPENAI_ENDPOINT = environ.get("az_openai_endpoint")
@@ -63,14 +65,17 @@ class DefaultConfig(MsalAuthConfiguration):
         self.AZURE_BLOB_CONTAINER_NAME_HUBMASTER = environ.get("az_blob_container_name_hubmaster")
         self.AZURE_BLOB_CONTAINER_NAME_STATE = environ.get("az_blob_container_name_state")
         self.AZURE_STORAGE_RG = environ.get("az_storage_rg")
-        
-        # Configuration for tools compatibility
-        self.az_storage_account_name = environ.get("az_blob_storage_account_name")
+
+        # Configuration for tools compatibility / convenience
+        self.az_blob_storage_account_name = environ.get("az_blob_storage_account_name")
+        self.az_storage_account_name = self.az_blob_storage_account_name
         self.az_storage_container_name = environ.get("az_blob_container_name")
         self.az_blob_container_name_hubmaster = environ.get("az_blob_container_name_hubmaster")
         self.az_blob_container_name_state = environ.get("az_blob_container_name_state")
         self.az_subscription_id = environ.get("az_subscription_id")
-        self.az_storage_rg_name = environ.get("az_storage_rg")  # Using same as az_storage_rg
+        # Prefer explicit az_storage_rg_name, fall back to az_storage_rg for backward compatibility
+        self.az_storage_rg_name = environ.get("az_storage_rg_name") or environ.get("az_storage_rg")
+        self.az_storage_rg = environ.get("az_storage_rg")
         
         # Azure Key Vault Configuration
         self.az_key_vault_name = environ.get("akv")

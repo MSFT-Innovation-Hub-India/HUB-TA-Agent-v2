@@ -110,44 +110,43 @@ Key configuration parameters are set in [`config.py`](config.py) and include:
 - **Application**: Port settings and runtime configurations
 
 ## Key Files
-- [`app.py`](app.py): Main application entry point using Microsoft 365 Agents SDK hosting
-- [`tab_agent.py`](tab_agent.py): Core conversational agent implementation extending ActivityHandler
+- [`app.py`](app.py): Backwards-compatible wrapper that delegates to the new GA hosting stack
+- [`agent_sdk.py`](agent_sdk.py): Primary agent application built on the GA Microsoft 365 Agents SDK
+- [`start_server.py`](start_server.py): aiohttp hosting bootstrap used by `agent_sdk.py`
 - [`config.py`](config.py): Configuration management with Azure service integration
 - [`graph_build.py`](graph_build.py): LangGraph workflow orchestration for multi-agent interactions
 - [`tools/agenda_selector.py`](tools/agenda_selector.py): Agenda generation logic and prompt templates
 - [`tools/doc_generator.py`](tools/doc_generator.py): Microsoft Word document creation utilities
 - [`tools/hub_master.py`](tools/hub_master.py): Hub-specific data and speaker management
-- [`util/az_blob_storage.py`](util/az_blob_storage.py): Azure Blob Storage integration
+- [`util/az_blob_storage.py`](util/az_blob_storage.py): Azure Blob Storage integration for conversation state
 - [`util/az_blob_account_access.py`](util/az_blob_account_access.py): Blob account access management
 - [`input_files/hub-bengaluru.md`](input_files/hub-bengaluru.md): Hub-specific speaker and topic mappings
 - [`Dockerfile`](Dockerfile): Container configuration for Azure Container Apps deployment
 
 ## Microsoft 365 Agents SDK Architecture
 
-This implementation leverages the Microsoft 365 Agents SDK which provides:
-- **ActivityHandler**: Base class for handling different types of activities (messages, member additions, etc.)
+This implementation now leverages the GA Microsoft 365 Agents SDK surface which provides:
+- **AgentApplication** with decorator-based message handlers for authoring bot logic
 - **CloudAdapter**: Handles communication between the bot and Microsoft channels
-- **State Management**: Built-in user state and conversation state management
-- **Authentication**: Integrated MSAL authentication for Azure services
+- **Authorization**: Centralized token validation driven by `MsalConnectionManager`
 - **Hosting**: aiohttp-based hosting with JWT authorization middleware
 
 ### Key Components:
 
-1. **TABAgent (ActivityHandler)**
-   - Extends Microsoft 365 Agents SDK ActivityHandler
-   - Manages conversation flow and user interactions
-   - Integrates with Azure OpenAI using managed identity
-   - Handles state persistence and retrieval
+1. **AgentApplication Message Handler**
+   - `agent_sdk.py` registers message handlers on the `AgentApplication`
+   - Manages conversation flow, tenant authorization, and LangGraph integration
+   - Persists conversation state through a dedicated `ConversationStateManager`
 
 2. **State Management**
-   - UserState: Tracks user preferences, conversation history, and session data
-   - ConversationState: Manages conversation-specific configuration and context
-   - MemoryStorage: In-memory storage for development (configurable for production)
+   - Internal turn state uses the SDK’s `MemoryStorage`
+   - Long-lived conversation data is stored in Azure Blob Storage via the updated GA storage adapter
+   - Conversation state automatically resets stale threads after prolonged inactivity
 
 3. **Authentication & Authorization**
-   - MsalAuth: Microsoft Authentication Library integration
-   - JWT middleware: Validates incoming requests from Microsoft channels
-   - Managed Identity: Secure authentication to Azure OpenAI and other services
+   - `MsalConnectionManager` and `Authorization` enforce Microsoft 365 token validation
+   - Public network access to the storage account is verified (and re-enabled if required) per turn
+   - Managed Identity authenticates outbound calls to Azure OpenAI and Azure Storage
 
 4. **Multi-Agent Workflow (LangGraph)**
    - Orchestrates specialized agents for different tasks
