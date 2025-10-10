@@ -28,10 +28,10 @@ try:  # GA packages expose both underscore and dotted namespaces depending on ve
         TurnState,
     )
 except ImportError:  # pragma: no cover - fallback for environments still publishing dotted namespace
-    from microsoft.agents.activity import load_configuration_from_env
-    from microsoft.agents.authentication.msal import MsalConnectionManager
-    from microsoft.agents.hosting.aiohttp import CloudAdapter
-    from microsoft.agents.hosting.core import (
+    from microsoft.agents.activity import load_configuration_from_env  # type: ignore[import-not-found]
+    from microsoft.agents.authentication.msal import MsalConnectionManager  # type: ignore[import-not-found]
+    from microsoft.agents.hosting.aiohttp import CloudAdapter  # type: ignore[import-not-found]
+    from microsoft.agents.hosting.core import (  # type: ignore[import-not-found]
         AgentApplication,
         Authorization,
         MemoryStorage,
