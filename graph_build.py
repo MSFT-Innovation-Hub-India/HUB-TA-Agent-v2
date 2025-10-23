@@ -28,10 +28,12 @@ from openai import AzureOpenAI
 
 from tools.doc_generator import generate_agenda_document
 from tools.agenda_selector import set_prompt_template
+from tools.golden_doc_retriever import retrieve_and_customize_document, get_agenda_tags_from_mapping, find_document_by_tags, retrieve_and_customize_golden_document
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
 import datetime
 from IPython.display import display, Image
+import traceback
 
 import logging
 from opencensus.ext.azure.log_exporter import AzureLogHandler
@@ -100,11 +102,14 @@ class State(TypedDict):
     prompt_template: str
     user_name: Optional[str]
     hub_master_info: str
+    agenda_mapping_info: str
+    golden_document_content: str
     dialog_state: Annotated[
         list[
             Literal[
                 "primary_assistant",
                 "notes_extraction",
+                "golden_document_selection",
                 "agenda_creation",
                 "document_generation",
             ]
@@ -347,6 +352,149 @@ class ToNotesExtractor(BaseModel):
         }
 
 
+# -------------------------------
+# Golden Document Selection Agent Prompt
+# -------------------------------
+golden_doc_selector_sys_prompt = """
+- **Identity and Role:**
+  - You are the Golden Document Selection Agent.
+  - Your primary responsibility is to help select the right agenda template document from Azure Blob Storage based on topic tags, retrieve it, customize it with customer-specific information, and present it for user confirmation.
+  - You must proceed **step-by-step**, collecting required information and confirming with the user.
+  - {user_name} will be the user you are interacting with.
+  - Refer to the content below for hub information: \n ----- hub master info ------\n {hub_master_info}\n ----- end of hub master info ------\n
+  - **Available topic tags and mappings:** \n ----- agenda mapping info ------\n {agenda_mapping_info}\n ----- end of agenda mapping info ------\n
+
+- **IMPORTANT: You must interact with the user to collect information. Do NOT immediately use CompleteOrEscalate.**
+- **Start by greeting the user and explaining the process, then begin collecting required metadata.**
+
+- **Step 1: Initial Greeting and Collect Required Metadata**
+  - Start with a friendly greeting and brief explanation of what you'll help them with.
+  - Then collect the following information from the user. If any are missing, ask for them **all at once** in a formatted, easy-to-respond manner:
+    1. **Customer Name**
+    2. **Engagement Type** (one of: BUSINESS_ENVISIONING, SOLUTION_ENVISIONING, ADS, RAPID_PROTOTYPE, HACKATHON, CONSULT)
+    3. **Date of Engagement** (format: DD-MMM-YYYY, must be a future date relative to current time: {time})
+    4. **Venue for the Engagement** (e.g., "In person at the Microsoft Innovation Hub facility, Bengaluru" or "Virtual Session" or "In person at the customer's office")
+  
+  - **Format for asking missing information:**
+    > Great! I'll help you create an agenda from our golden document templates. 
+    > 
+    > I need a few details to proceed. Please provide:
+    > 1. **Customer Name:** [Your answer here]
+    > 2. **Engagement Type:** [Choose from: BUSINESS_ENVISIONING, SOLUTION_ENVISIONING, ADS, RAPID_PROTOTYPE, HACKATHON, CONSULT]
+    > 3. **Date of Engagement:** [Format: DD-MMM-YYYY]
+    > 4. **Venue:** [Your venue details]
+
+- **Step 2: Topic Selection**
+  - After collecting metadata, **dynamically load and present the available Primary Tags** from the agenda mapping info section above.
+  - Extract all unique Primary Tags from the agenda mapping table and present them as a numbered list.
+  - Ask the user to select the primary topic(s) that best match their session needs.
+  - Users can select by number or by tag name.
+  
+  - After the user selects primary tag(s), ask: "Are there any secondary topics you'd like to cover?"
+  - If yes, **dynamically filter and present the relevant Secondary Tags** that are associated with the selected primary tags from the agenda mapping info.
+  - Use the selected tags to identify the correct document URL from the agenda mapping table.
+  - Once you identify the document URL, output it in your response as: **Document URL: [URL]**
+
+- **Step 3: Confirmation Before Retrieval**
+  - After identifying the document URL based on tags, confirm with the user:
+    > I've identified the template document based on your topic selection. Here's a summary:
+    > - **Customer Name:** [name]
+    > - **Engagement Type:** [type]
+    > - **Date:** [date]
+    > - **Venue:** [venue]
+    > - **Selected Topics:** [list of tags]
+    > - **Document Name:** [document name from mapping file]
+    > 
+    > Shall I proceed to retrieve and customize this document?
+  
+  - Wait for user confirmation before proceeding.
+
+- **Step 4: Retrieve and Customize Document**
+  - Once the user confirms, call the `retrieve_and_customize_golden_document` tool with the collected information:
+    - blob_name: The document name from the mapping file
+    - customer_name: The exact customer name
+    - engagement_type: The exact engagement type
+    - date_of_engagement: Date in DD-MMM-YYYY format (e.g., "12-Nov-2025")
+    - venue: The exact venue
+  
+  - The tool will return the customized document content.
+  
+- **Step 5: Present Customized Document**
+  - After receiving the tool response, present the customized document to the user:
+    ```
+    ### Customized Agenda Document ###
+    [Include the customized document content from the tool response]
+    ```
+  - Ask: "Here is the customized agenda based on the golden document. Does this look good, or would you like any changes?"
+
+- **Step 6: Handle User Corrections**
+  - If the user requests changes, apply the corrections as free-form edits based on their feedback.
+  - Re-present the updated document and confirm again.
+  - Repeat until the user confirms the document is satisfactory.
+
+- **Step 7: Final Confirmation**
+  - Once the user confirms the document is ready, output:
+    ```
+    ### Customized Agenda Document ###
+    [Include the final customized document here]
+    
+    The agenda is ready for document generation.
+    ```
+  - Then use CompleteOrEscalate to proceed to document generation.
+
+- **Important Do's and Don'ts:**
+  - ✅ Always start by greeting the user and asking for required information
+  - ✅ Dynamically read and present tags from the agenda mapping info provided above.
+  - ✅ Collect all missing metadata at once in a clear format.
+  - ✅ Present topic tags as a simple numbered list for easy selection.
+  - ✅ Allow free-form corrections based on user feedback.
+  - ✅ Validate that the engagement date is in the future relative to {time}.
+  - ❌ Do NOT immediately call CompleteOrEscalate without interacting with the user first
+  - ❌ Do not hardcode tag lists - always use the agenda mapping info provided.
+  - ❌ Do not proceed without all required metadata.
+  - ❌ Do not make assumptions about which document to use without user topic selection.
+  - Do not waste the user's time. Do not make up invalid tools or functions.
+  - If the user needs help beyond your scope, use CompleteOrEscalate to return to the primary_assistant.
+
+Some examples for which you should CompleteOrEscalate:
+- 'nevermind, I want to use meeting notes instead'
+- 'this looks perfect, proceed to document generation'
+- 'I confirm, generate the Word document now'
+- 'actually, I have meeting notes I'd like to share instead'
+"""
+
+golden_doc_selector_prompt = (
+    ChatPromptTemplate(
+        [
+            ("system", golden_doc_selector_sys_prompt + "\nCurrent time: {time}."),
+            ("placeholder", "{messages}"),
+        ]
+    )
+    .partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    .partial(user_name=State["user_name"])
+    .partial(agenda_mapping_info=State["agenda_mapping_info"])
+)
+
+golden_doc_tools = [retrieve_and_customize_golden_document]
+
+golden_doc_selector_runnable = golden_doc_selector_prompt | llm.bind_tools(
+    golden_doc_tools + [CompleteOrEscalate]
+)
+
+
+class ToGoldenDocumentSelector(BaseModel):
+    request: str = Field(
+        description="I want to create an agenda based on golden document templates using topic tags."
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "request": "I want to create an agenda for an Innovation Hub Session using topic-based templates",
+            }
+        }
+
+
 agenda_creator_sys_prompt = """
     **You are the Agenda Creator Agent**
     - Your primary responsibility is to generate a detailed Agenda based on the metadata and goals provided as input.
@@ -459,19 +607,45 @@ class ToDocumentGenerator(BaseModel):
 primary_agent_sys_prompt = """
     You are TAB (Technical Architect Buddy), a helpful AI Assistant for the Technical Architect of Microsoft Innovation Hub Team.
     Your primary role is to help the Technical architect to prepare an Agenda for the Innovation Hub Session for the Customer.
-    There are 3 workflow stages to this process:
-    1. **Notes_Extraction:** Validate the input provided by the user, including meeting notes and metadata.
+    
+    **Initial Question:**
+    When a user first requests help with creating an agenda, ask them:
+    > "Would you like to create the agenda based on:
+    > 1. **Meeting notes** that you have from briefing calls, or
+    > 2. **Topic selection** from our golden document templates?
+    > 
+    > Please let me know which approach you'd prefer."
+    
+    Based on their response, route to the appropriate workflow:
+    - If they choose **meeting notes**, proceed to the Notes_Extraction workflow.
+    - If they choose **topic selection** or **golden documents**, proceed to the GoldenDocument_Selection workflow.
+    
+    There are 4 workflow stages to this process:
+    
+    1. **Notes_Extraction:** (For meeting notes approach) Validate the input provided by the user, including meeting notes and metadata.
     - You will receive the input for agenda creation in the section labeled **### Internal Briefing Notes ###** or **### External Briefing Notes ###**.
     - Check if there is content under `### External Briefing Notes ###`. If not, check for `### Internal Briefing Notes ###`.
-    -   If neither is provided, ask the user for them. {user_name} will be the user you are interacting with. Address the user when interacting with, but do not overdo it.
+    - If neither is provided, ask the user for them. {user_name} will be the user you are interacting with. Address the user when interacting with, but do not overdo it.
     - You will assign this task to the Notes Extractor Agent, which will extract the metadata and agenda goals from the meeting notes.
     - This stage completes when the Notes Extraction Agent has returned the extracted content under **### Engagement Goals Confirmation Message ###** section of the message.
-    2.**Agenda_Creation:** Use the metadata and engagement goals provided by the Notes Extraction Agent to create an agenda for the Innovation Hub session.
+    
+    2. **GoldenDocument_Selection:** (For topic-based approach) Help the user select and customize a golden document template.
+    - You will assign this task to the Golden Document Selection Agent, which will:
+      - Collect required metadata (Customer Name, Engagement Type, Date, Venue)
+      - Present available topic tags for selection
+      - Retrieve the appropriate golden document from Azure Blob Storage
+      - Customize the document with customer-specific information
+      - Confirm with the user before proceeding
+    - This stage completes when the Golden Document Selection Agent has returned the customized document under **### Customized Agenda Document ###** section.
+    
+    3. **Agenda_Creation:** (Only for meeting notes approach) Use the metadata and engagement goals provided by the Notes Extraction Agent to create an agenda for the Innovation Hub session.
     - You will receive the metadata and engagement goals in the section labeled **### Engagement Goals Confirmation Message ###**.
     - You will assign this task to the Agenda Creator Agent, which will generate a detailed agenda for the Innovation Hub Engagement, in Markdown table format
     - This stage completes when the Agenda Creator Agent has returned the detailed agenda under **### Innovation Hub Engagement Agenda ###** section of the message.
-    3.**Document_Generation:** Use the agenda created by the Agenda Creator Agent to generate a Microsoft Office Word document (.docx) for the agenda items.
-    - You will receive the agenda in the section labeled **### Innovation Hub Engagement Agenda ###**.
+    
+    4. **Document_Generation:** Use the agenda (from either Agenda_Creation or GoldenDocument_Selection) to generate a Microsoft Office Word document (.docx).
+    - For meeting notes approach: You will receive the agenda in the section labeled **### Innovation Hub Engagement Agenda ###**.
+    - For topic-based approach: You will receive the agenda in the section labeled **### Customized Agenda Document ###**.
     - You will assign this task to the Document Generator Agent, which will generate the Word document for the agenda items.
     - This stage completes when the Document Generator Agent has returned the Word document for the agenda items.
 """
@@ -490,7 +664,7 @@ primary_agent_prompt = (
 )
 
 primary_agent_runnable = primary_agent_prompt | llm.bind_tools(
-    [ToNotesExtractor, ToAgendaCreator, ToDocumentGenerator]
+    [ToNotesExtractor, ToGoldenDocumentSelector, ToAgendaCreator, ToDocumentGenerator]
 )
 
 
@@ -545,8 +719,25 @@ def hub_master_info(state: State):
     if state.get("hub_master_info"):
         return {"hub_master_info": state.get("hub_master_info")}
     else:
-        print("Fetching hub master info, and settung it to the state")
+        print("Fetching hub master info, and setting it to the state")
         return {"hub_master_info": get_hub_masterdata.invoke({})}
+
+
+def load_agenda_mapping_info(state: State):
+    """Load the agenda mapping markdown file content for dynamic tag selection."""
+    if state.get("agenda_mapping_info"):
+        return {"agenda_mapping_info": state.get("agenda_mapping_info")}
+    else:
+        print("Loading agenda mapping info from file")
+        try:
+            with open("golden_docs/agenda_mapping.md", 'r', encoding='utf-8') as f:
+                mapping_content = f.read()
+            logger.debug(f"Loaded agenda mapping info: {len(mapping_content)} characters")
+            return {"agenda_mapping_info": mapping_content}
+        except Exception as e:
+            logger.error(f"Error loading agenda mapping info: {str(e)}")
+            return {"agenda_mapping_info": "Error loading agenda mapping information."}
+
 
 
 def extract_user_name(state: State, config: RunnableConfig) -> dict:
@@ -577,6 +768,8 @@ builder.add_node("extract_user_name", extract_user_name)
 builder.add_edge(START, "extract_user_name")
 builder.add_edge("extract_user_name", "fetch_hub_info")
 builder.add_node("fetch_hub_info", hub_master_info)
+builder.add_edge("fetch_hub_info", "load_agenda_mapping")
+builder.add_node("load_agenda_mapping", load_agenda_mapping_info)
 # builder.add_edge(START, "fetch_hub_info")
 
 
@@ -633,6 +826,103 @@ def prompt_template(state: State) -> dict:
 
 builder.add_node("set_prompt_template", prompt_template)
 
+
+def retrieve_golden_doc(state: State) -> dict:
+    """
+    Node to retrieve and customize the golden document from blob storage.
+    Similar to set_prompt_template, this extracts information from the agent's response
+    and calls the retrieval function.
+    """
+    print("=== ENTERED retrieve_golden_doc NODE ===")
+    logger.debug("In retrieve_golden_doc node")
+    logger.debug(f"Total messages in state: {len(state['messages'])}")
+    print(f"Total messages in state: {len(state['messages'])}")
+    
+    # Find the Golden Document Retrieval Request in the messages
+    retrieval_request = None
+    for idx, msg in enumerate(reversed(state["messages"])):
+        content = getattr(msg, "content", "") if hasattr(msg, "content") else ""
+        msg_type = getattr(msg, "type", "unknown") if hasattr(msg, "type") else "unknown"
+        logger.debug(f"Message {idx} (from end): type={msg_type}, has_retrieval_marker={'### Golden Document Retrieval Request ###' in content}")
+        
+        if hasattr(msg, "content") and "### Golden Document Retrieval Request ###" in msg.content:
+            retrieval_request = msg.content
+            print(f"*** FOUND RETRIEVAL REQUEST in message {idx} ***")
+            logger.info(f"Found retrieval request in message {idx} from end")
+            break
+    
+    if not retrieval_request:
+        print("*** ERROR: No retrieval request found! ***")
+        logger.error("No retrieval request found in messages")
+        logger.debug(f"Last 3 messages content: {[getattr(m, 'content', '')[:200] if hasattr(m, 'content') else '' for m in list(reversed(state['messages']))[:3]]}")
+        return {"golden_document_content": "Error: No retrieval request found. The agent should have output the retrieval request in the specified format."}
+    
+    try:
+        print(f"Parsing retrieval request (length: {len(retrieval_request)} chars)")
+        logger.debug(f"Parsing retrieval request (length: {len(retrieval_request)} chars)")
+        # Parse the retrieval request
+        lines = retrieval_request.split('\n')
+        customer_name = None
+        engagement_type = None
+        date_of_engagement = None
+        venue = None
+        blob_name = None
+        
+        for line in lines:
+            line = line.strip()
+            if line.startswith("Customer Name:"):
+                customer_name = line.replace("Customer Name:", "").strip()
+            elif line.startswith("Engagement Type:"):
+                engagement_type = line.replace("Engagement Type:", "").strip()
+            elif line.startswith("Date of Engagement:"):
+                date_of_engagement = line.replace("Date of Engagement:", "").strip()
+            elif line.startswith("Venue:"):
+                venue = line.replace("Venue:", "").strip()
+            elif line.startswith("Document Name:"):
+                blob_name = line.replace("Document Name:", "").strip()
+        
+        logger.debug(f"Parsed values - Customer: {customer_name}, Type: {engagement_type}, Date: {date_of_engagement}, Venue: {venue}, Blob: {blob_name}")
+        print(f"*** PARSED: Customer={customer_name}, Blob={blob_name} ***")
+        
+        # Validate we have all required information
+        if not all([customer_name, engagement_type, date_of_engagement, venue, blob_name]):
+            missing = []
+            if not customer_name: missing.append("Customer Name")
+            if not engagement_type: missing.append("Engagement Type")
+            if not date_of_engagement: missing.append("Date of Engagement")
+            if not venue: missing.append("Venue")
+            if not blob_name: missing.append("Document Name")
+            
+            error_msg = f"Missing required information: {', '.join(missing)}"
+            logger.error(error_msg)
+            return {"golden_document_content": f"Error: {error_msg}"}
+        
+        logger.debug(f"Retrieving document for customer: {customer_name}, blob: {blob_name}")
+        print(f"*** CALLING retrieve_and_customize_document for blob: {blob_name} ***")
+        
+        # Call the retrieval function
+        result = retrieve_and_customize_document(
+            blob_name=blob_name,
+            customer_name=customer_name,
+            engagement_type=engagement_type,
+            date_of_engagement=date_of_engagement,
+            venue=venue
+        )
+        
+        print(f"*** DOCUMENT RETRIEVAL RESULT: {result.keys() if isinstance(result, dict) else type(result)} ***")
+        logger.debug("Document retrieved and customized successfully")
+        return result
+        
+    except Exception as e:
+        error_msg = f"Error in retrieve_golden_doc node: {str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        return {"golden_document_content": f"Error: {error_msg}"}
+
+
+# NOTE: retrieve_golden_doc node is no longer used - golden document retrieval is now done via tool
+# builder.add_node("retrieve_golden_doc", retrieve_golden_doc)
+
 # -------------------------------
 # Nodes for Notes Extraction
 # -------------------------------
@@ -674,6 +964,55 @@ builder.add_conditional_edges(
     ["set_prompt_template", "leave_skill", END],
 )
 
+
+# -------------------------------
+# Nodes for Golden Document Selection
+# -------------------------------
+builder.add_node(
+    "enter_golden_document_selection",
+    create_entry_node("Golden Document Selection Agent", "golden_document_selection"),
+)
+builder.add_node("golden_document_selection", Assistant(golden_doc_selector_runnable))
+builder.add_node(
+    "golden_doc_tools",
+    create_tool_node_with_fallback(golden_doc_tools),
+)
+builder.add_edge("enter_golden_document_selection", "golden_document_selection")
+builder.add_edge("golden_doc_tools", "golden_document_selection")
+
+
+def route_golden_document_selection(state: State):
+    print("in route_golden_document_selection")
+    route = tools_condition(state)
+    print("in route golden document selection condition; the route now is ...", route)
+    if route == END:
+        # Agent responded without tool calls - return END to send response to user
+        return END
+    
+    tool_calls = state["messages"][-1].tool_calls
+    did_cancel = any(tc["name"] == CompleteOrEscalate.__name__ for tc in tool_calls)
+    print("in route golden document selection ---- current status is ...", did_cancel)
+    
+    if did_cancel:
+        print("*** leaving the golden document selection skill ***")
+        return "leave_skill"
+    
+    # Check if any of the golden document tools were called
+    golden_tool_names = [
+        t.name if hasattr(t, "name") else t.__name__ for t in golden_doc_tools
+    ]
+    if any(tc["name"] in golden_tool_names for tc in tool_calls):
+        print("the golden doc tools are present, returning golden_doc_tools")
+        return "golden_doc_tools"
+    
+    return "leave_skill"
+
+
+builder.add_conditional_edges(
+    "golden_document_selection",
+    route_golden_document_selection,
+    ["golden_doc_tools", "leave_skill", END],
+)
 
 # -------------------------------
 # Nodes for Agenda Creation
@@ -800,6 +1139,9 @@ def route_primary_assistant(state: State):
         if tool_calls[0]["name"] == ToNotesExtractor.__name__:
             logger.debug("**** routing to enter_notes_extraction")
             return "enter_notes_extraction"
+        if tool_calls[0]["name"] == ToGoldenDocumentSelector.__name__:
+            logger.debug("**** routing to enter_golden_document_selection")
+            return "enter_golden_document_selection"
         if tool_calls[0]["name"] == ToAgendaCreator.__name__:
             logger.debug("**** routing to agenda creation")
             return "enter_agenda_creation"
@@ -816,6 +1158,7 @@ builder.add_conditional_edges(
     route_primary_assistant,
     [
         "enter_notes_extraction",
+        "enter_golden_document_selection",
         "enter_agenda_creation",
         "enter_document_generation",
         END,
@@ -828,7 +1171,7 @@ builder.add_conditional_edges(
 def route_to_workflow(
     state: State,
 ) -> Literal[
-    "primary_assistant", "notes_extraction", "agenda_creation", "document_generation"
+    "primary_assistant", "notes_extraction", "golden_document_selection", "agenda_creation", "document_generation"
 ]:
     """If we are in a delegated state, route directly to the appropriate assistant."""
     dialog_state = state.get("dialog_state")
@@ -837,7 +1180,7 @@ def route_to_workflow(
     return dialog_state[-1]
 
 
-builder.add_conditional_edges("fetch_hub_info", route_to_workflow)
+builder.add_conditional_edges("load_agenda_mapping", route_to_workflow)
 
 
 memory = MemorySaver()

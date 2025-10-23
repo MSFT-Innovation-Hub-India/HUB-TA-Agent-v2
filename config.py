@@ -72,6 +72,7 @@ class DefaultConfig:
         self.az_storage_container_name = environ.get("az_blob_container_name")
         self.az_blob_container_name_hubmaster = environ.get("az_blob_container_name_hubmaster")
         self.az_blob_container_name_state = environ.get("az_blob_container_name_state")
+        self.az_blob_golden_docs_container_name = environ.get("az_blob_golden_docs_container_name", "golden-repo")
         self.az_subscription_id = environ.get("az_subscription_id")
         # Prefer explicit az_storage_rg_name, fall back to az_storage_rg for backward compatibility
         self.az_storage_rg_name = environ.get("az_storage_rg_name") or environ.get("az_storage_rg")
