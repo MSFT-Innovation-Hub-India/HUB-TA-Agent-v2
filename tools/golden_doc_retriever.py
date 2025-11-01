@@ -28,7 +28,8 @@ def retrieve_and_customize_document(
     customer_name: str,
     engagement_type: str,
     date_of_engagement: str,
-    venue: str
+    venue: str,
+    hub_location: str = None
 ) -> dict:
     """
     Retrieve a golden document from Azure Blob Storage and customize it with customer information.
@@ -40,6 +41,7 @@ def retrieve_and_customize_document(
         engagement_type: The type of engagement (e.g., SOLUTION_ENVISIONING, ADS)
         date_of_engagement: The date of engagement in DD-MMM-YYYY format
         venue: The venue for the engagement
+        hub_location: The hub location for retrieving the document (optional)
         
     Returns:
         dict: {"golden_document_content": str} or {"golden_document_content": None} with error logged
@@ -47,7 +49,7 @@ def retrieve_and_customize_document(
     logger.debug(f"Retrieving and customizing golden document: {blob_name}")
     
     # First retrieve the document
-    retrieval_result = _retrieve_golden_document_internal(blob_name)
+    retrieval_result = _retrieve_golden_document_internal(blob_name, hub_location)
     
     if retrieval_result["error"]:
         logger.error(f"Failed to retrieve document: {retrieval_result['error']}")
@@ -94,7 +96,8 @@ def retrieve_and_customize_golden_document(
     customer_name: str,
     engagement_type: str,
     date_of_engagement: str,
-    venue: str
+    venue: str,
+    hub_location: str = None
 ) -> dict:
     """
     Retrieve a golden document from Azure Blob Storage and customize it with customer information.
@@ -105,14 +108,18 @@ def retrieve_and_customize_golden_document(
         engagement_type: The type of engagement (e.g., SOLUTION_ENVISIONING, ADS)
         date_of_engagement: The date of engagement in DD-MMM-YYYY format
         venue: The venue for the engagement
+        hub_location: The hub location for retrieving the document (optional)
         
     Returns:
         dict: {"customized_content": str, "error": str or None}
     """
-    logger.debug(f"Retrieving and customizing golden document: {blob_name}")
+    logger.debug(f"retrieve_and_customize_golden_document called with parameters:")
+    logger.debug(f"  blob_name: {blob_name}")
+    logger.debug(f"  hub_location: {hub_location}")
+    logger.debug(f"  customer_name: {customer_name}")
     
     # First retrieve the document
-    retrieval_result = _retrieve_golden_document_internal(blob_name)
+    retrieval_result = _retrieve_golden_document_internal(blob_name, hub_location)
     
     if retrieval_result["error"]:
         return {
@@ -161,19 +168,40 @@ def retrieve_and_customize_golden_document(
         }
 
 
-def _retrieve_golden_document_internal(blob_name: str) -> dict:
+def _retrieve_golden_document_internal(blob_name: str, hub_location: str = None) -> dict:
     """
     Retrieve a markdown document from Azure Blob Storage using authenticated access.
     
     Args:
         blob_name: The name of the blob document (e.g., "Agenda - Solution Envisioning – DataAI.md")
+        hub_location: The hub location (e.g., "bengaluru", "dubai"). If not provided, tries to get from config.
         
     Returns:
         dict: {"document_content": str, "error": str or None}
     """
     logger.debug(f"Retrieving golden document: {blob_name}")
+    logger.debug(f"_retrieve_golden_document_internal called with hub_location: {hub_location}")
     
     try:
+        # Get hub location - use provided value or try to get first hub city from config as fallback
+        if not hub_location:
+            # Try to get first hub city from config as a fallback
+            hub_cities = config.hub_cities.strip() if config.hub_cities else ""
+            if hub_cities:
+                # Take the first city from the comma-separated list
+                hub_location = hub_cities.split(',')[0].strip()
+            else:
+                # Default fallback
+                hub_location = "bengaluru"
+        
+        # Normalize the hub location name
+        normalized_hub_location = config.normalize_hub_name(hub_location)
+        
+        # Construct the blob path: hub-{city}/documents/{document_name}
+        full_blob_name = f"hub-{normalized_hub_location}/documents/{blob_name}"
+        
+        logger.debug(f"Constructed blob path: {full_blob_name}")
+        
         # Get storage account and container name from config
         storage_account_name = config.az_blob_storage_account_name
         container_name = config.az_blob_golden_docs_container_name
@@ -204,15 +232,15 @@ def _retrieve_golden_document_internal(blob_name: str) -> dict:
         # Get the blob client
         blob_client = blob_service_client.get_blob_client(
             container=container_name,
-            blob=blob_name
+            blob=full_blob_name
         )
         
         # Check if blob exists
         if not blob_client.exists():
-            logger.error(f"Blob does not exist: {blob_name}")
+            logger.error(f"Blob does not exist: {full_blob_name}")
             return {
                 "document_content": None,
-                "error": f"Document not found in blob storage: {blob_name}"
+                "error": f"Document not found in blob storage: {full_blob_name}"
             }
         
         # Download the blob content
@@ -236,9 +264,12 @@ def _retrieve_golden_document_internal(blob_name: str) -> dict:
         }
 
 
-def get_agenda_tags_from_mapping() -> dict:
+def get_agenda_tags_from_mapping(hub_location: str = None) -> dict:
     """
-    Load and parse the agenda_mapping.md file to extract tags and document URLs.
+    Load and parse the agenda_mapping.md file from Azure Blob Storage to extract tags and document URLs.
+    
+    Args:
+        hub_location: The hub location (e.g., "bengaluru", "mumbai"). If not provided, tries to get from config.
     
     Returns:
         dict: {
@@ -247,29 +278,72 @@ def get_agenda_tags_from_mapping() -> dict:
         }
     """
     try:
-        # Read the agenda_mapping.md file - use relative or absolute path
-        import os
+        # Get hub location - use provided value or try to get first hub city from config as fallback
+        logger.debug(f"get_agenda_tags_from_mapping called with hub_location: {hub_location}")
         
-        # Try to find the file relative to the current working directory or script location
-        possible_paths = [
-            "golden_docs/agenda_mapping.md",
-            os.path.join(os.path.dirname(__file__), "..", "golden_docs", "agenda_mapping.md"),
-        ]
+        if not hub_location:
+            # Try to get first hub city from config as a fallback
+            hub_cities = config.hub_cities.strip() if config.hub_cities else ""
+            logger.debug(f"No hub_location provided, checking config.hub_cities: '{hub_cities}'")
+            if hub_cities:
+                # Take the first city from the comma-separated list
+                hub_location = hub_cities.split(',')[0].strip()
+                logger.debug(f"Using first city from config: {hub_location}")
+            else:
+                # Default fallback
+                hub_location = "bengaluru"
+                logger.debug(f"Using default fallback: {hub_location}")
         
-        mapping_file_path = None
-        for path in possible_paths:
-            if os.path.exists(path):
-                mapping_file_path = path
-                break
+        # Normalize the hub location name
+        normalized_hub_location = config.normalize_hub_name(hub_location)
+        logger.debug(f"Normalized hub location: {normalized_hub_location}")
         
-        if not mapping_file_path:
-            logger.error("Could not find agenda_mapping.md file")
+        # Construct the blob path: hub-{city}/agenda_mapping.md
+        blob_name = f"hub-{normalized_hub_location}/agenda_mapping.md"
+        
+        logger.debug(f"Retrieving agenda mapping from Azure Blob Storage: {blob_name}")
+        
+        # Get storage account and container name from config
+        storage_account_name = config.az_blob_storage_account_name
+        container_name = config.az_blob_golden_docs_container_name
+        
+        if not storage_account_name:
+            logger.error("Storage account name not configured (az_blob_storage_account_name)")
             return {"primary_tags": [], "mappings": []}
         
-        with open(mapping_file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
+        if not container_name:
+            logger.error("Golden docs container name not configured (az_blob_golden_docs_container_name)")
+            return {"primary_tags": [], "mappings": []}
         
-        # Parse the markdown table
+        logger.debug(f"Using storage account: {storage_account_name}, container: {container_name}")
+        
+        # Create BlobServiceClient using DefaultAzureCredential for authenticated access
+        account_url = f"https://{storage_account_name}.blob.core.windows.net"
+        credential = DefaultAzureCredential()
+        
+        blob_service_client = BlobServiceClient(
+            account_url=account_url,
+            credential=credential
+        )
+        
+        # Get the blob client
+        blob_client = blob_service_client.get_blob_client(
+            container=container_name,
+            blob=blob_name
+        )
+        
+        # Check if blob exists
+        if not blob_client.exists():
+            logger.error(f"Agenda mapping blob does not exist: {blob_name}")
+            return {"primary_tags": [], "mappings": []}
+        
+        # Download the blob content
+        download_stream = blob_client.download_blob()
+        content = download_stream.readall().decode('utf-8')
+        
+        logger.debug(f"Successfully retrieved agenda mapping. Length: {len(content)} characters")
+        
+        # Parse the markdown table content
         lines = content.strip().split('\n')
         
         # Find the table start (skip header lines and separator)
@@ -325,18 +399,19 @@ def get_agenda_tags_from_mapping() -> dict:
         }
 
 
-def find_document_by_tags(primary_tags: list, secondary_tags: list = None) -> str:
+def find_document_by_tags(primary_tags: list, secondary_tags: list = None, hub_location: str = None) -> str:
     """
     Find the document name based on selected primary and optional secondary tags.
     
     Args:
         primary_tags: List of selected primary tags
         secondary_tags: Optional list of selected secondary tags
+        hub_location: The hub location for retrieving agenda mapping (optional)
         
     Returns:
         str: Document name (blob name) or None if no match found
     """
-    mapping_data = get_agenda_tags_from_mapping()
+    mapping_data = get_agenda_tags_from_mapping(hub_location)
     
     # Convert input to sets for easier matching
     primary_set = set(tag.strip() for tag in primary_tags)

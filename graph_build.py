@@ -101,6 +101,7 @@ class State(TypedDict):
     engagement_type: str
     prompt_template: str
     user_name: Optional[str]
+    hub_location: Optional[str]
     hub_master_info: str
     agenda_mapping_info: str
     golden_document_content: str
@@ -356,6 +357,11 @@ class ToNotesExtractor(BaseModel):
 # Golden Document Selection Agent Prompt
 # -------------------------------
 golden_doc_selector_sys_prompt = """
+- **CRITICAL INSTRUCTION: Hub Location**
+  - The current hub location is: {hub_location}
+  - When calling retrieve_and_customize_golden_document, you MUST always include hub_location="{hub_location}" as a parameter
+  - This ensures documents are retrieved from the correct hub folder (hub-{hub_location}/documents/)
+
 - **Identity and Role:**
   - You are the Golden Document Selection Agent.
   - Your primary responsibility is to help select the right agenda template document from Azure Blob Storage based on topic tags, retrieve it, customize it with customer-specific information, and present it for user confirmation.
@@ -416,11 +422,12 @@ golden_doc_selector_sys_prompt = """
     - engagement_type: The exact engagement type
     - date_of_engagement: Date in DD-MMM-YYYY format (e.g., "12-Nov-2025")
     - venue: The exact venue
+    - hub_location: Use the hub location from the context above (CRITICAL: This ensures the document is retrieved from the correct hub folder)
   
   - The tool will return the customized document content.
   
 - **Step 5: Present Customized Document**
-  - After receiving the tool response, present the customized document to the user:
+  - After receiving the tool response, present the customized document to the user, in Markdown Table view format for easy reading:
     ```
     ### Customized Agenda Document ###
     [Include the customized document content from the tool response]
@@ -466,13 +473,14 @@ Some examples for which you should CompleteOrEscalate:
 golden_doc_selector_prompt = (
     ChatPromptTemplate(
         [
-            ("system", golden_doc_selector_sys_prompt + "\nCurrent time: {time}."),
+            ("system", golden_doc_selector_sys_prompt + "\nCurrent time: {time}.\n\n**IMPORTANT: Hub Location Context**\nThe current hub location is: {hub_location}\nWhen calling retrieve_and_customize_golden_document, you MUST include hub_location='{hub_location}' as a parameter to ensure documents are retrieved from the correct hub folder."),
             ("placeholder", "{messages}"),
         ]
     )
     .partial(time=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     .partial(user_name=State["user_name"])
     .partial(agenda_mapping_info=State["agenda_mapping_info"])
+    .partial(hub_location=State["hub_location"])
 )
 
 golden_doc_tools = [retrieve_and_customize_golden_document]
@@ -715,27 +723,72 @@ def create_tool_node_with_fallback(tools: list) -> dict:
 builder = StateGraph(State)
 
 
-def hub_master_info(state: State):
+def hub_master_info(state: State, config: RunnableConfig):
     if state.get("hub_master_info"):
         return {"hub_master_info": state.get("hub_master_info")}
     else:
         print("Fetching hub master info, and setting it to the state")
-        return {"hub_master_info": get_hub_masterdata.invoke({})}
+        hub_info = get_hub_masterdata.invoke({}, config)
+        
+        # Extract hub location from config and store it in state for later use
+        hub_location = None
+        if config and isinstance(config, dict):
+            configurable = config.get("configurable", {})
+            if isinstance(configurable, dict):
+                hub_location = configurable.get("hub_location")
+        
+        print(f"Hub location from config: {hub_location}")
+        
+        result = {"hub_master_info": hub_info}
+        if hub_location:
+            result["hub_location"] = hub_location
+            print(f"Storing hub_location in state: {hub_location}")
+        else:
+            print("WARNING: No hub_location found in config")
+            
+        return result
 
 
-def load_agenda_mapping_info(state: State):
-    """Load the agenda mapping markdown file content for dynamic tag selection."""
+def load_agenda_mapping_info(state: State, config: RunnableConfig):
+    """Load the agenda mapping markdown file content for dynamic tag selection from Azure Blob Storage."""
     if state.get("agenda_mapping_info"):
         return {"agenda_mapping_info": state.get("agenda_mapping_info")}
     else:
-        print("Loading agenda mapping info from file")
+        print("Loading agenda mapping info from Azure Blob Storage")
         try:
-            with open("golden_docs/agenda_mapping.md", 'r', encoding='utf-8') as f:
-                mapping_content = f.read()
+            # Extract hub location from config or state
+            hub_location = None
+            if config and isinstance(config, dict):
+                configurable = config.get("configurable", {})
+                if isinstance(configurable, dict):
+                    hub_location = configurable.get("hub_location")
+            
+            # If not in config, try to get it from state
+            if not hub_location and state:
+                hub_location = state.get("hub_location")
+            
+            print(f"Using hub_location for agenda mapping: {hub_location}")
+            
+            # Get agenda tags and mappings data from Azure Blob Storage
+            # Pass the hub location from the runtime config
+            mapping_data = get_agenda_tags_from_mapping(hub_location)
+            
+            # Format the data back into markdown table format for compatibility with existing code
+            mapping_content = "# Agenda Mapping\n\n"
+            mapping_content += "| Primary Tags | Secondary Tags | DocumentURL |\n"
+            mapping_content += "|--------------|----------------|-------------|\n"
+            
+            for mapping in mapping_data.get("mappings", []):
+                primary_tags = ', '.join([f'"{tag}"' for tag in mapping.get("primary_tags", [])])
+                secondary_tags = ', '.join([f'"{tag}"' for tag in mapping.get("secondary_tags", [])])
+                document_name = mapping.get("document_name", "")
+                mapping_content += f"| {primary_tags} | {secondary_tags} | {document_name} |\n"
+            
             logger.debug(f"Loaded agenda mapping info: {len(mapping_content)} characters")
             return {"agenda_mapping_info": mapping_content}
         except Exception as e:
-            logger.error(f"Error loading agenda mapping info: {str(e)}")
+            logger.error(f"Error loading agenda mapping info from Azure Blob Storage: {str(e)}")
+            logger.error(traceback.format_exc())
             return {"agenda_mapping_info": "Error loading agenda mapping information."}
 
 
