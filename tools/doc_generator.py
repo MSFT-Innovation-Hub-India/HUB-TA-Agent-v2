@@ -2,6 +2,7 @@ import os
 import traceback
 from langchain_core.tools import tool
 from openai import AzureOpenAI
+from langchain_openai import AzureChatOpenAI
 from config import DefaultConfig
 from langchain_core.runnables import RunnableConfig
 import time
@@ -50,15 +51,14 @@ Use the document format 'Innovation Hub Agenda Format.docx' available with you. 
 [Agenda for Innovation Hub Session]
 """
 
-
 @tool
 def generate_agenda_document(query: str, config: RunnableConfig) -> str:
     """Generate a Microsoft Office Word document (.docx) with the draft Agenda for the Customer Engagement provided as user input.
 
     Args:
         query (str): The agenda items in markdown table format to be included in the document.
-        config (dict): Configuration parameters for document generation including customer_name,
-                      thread_id, and asst_thread_id.
+        config (dict): Configuration parameters for document generation including customer_name
+                      and hub_location for template selection.
 
     Returns:
         dict: A dictionary containing the status of document generation and file path information.
@@ -68,15 +68,9 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
     response = None
     try:
         configuration = config.get("configurable", {})
-        l_thread_id = configuration.get("asst_thread_id", None)
         hub_location = configuration.get("hub_location", None)
-        
-        if not l_thread_id:
-            logger.error("active thread not available in the Assistants API Session.")
-            raise ValueError(
-                "active thread not available in the Assistants API Session."
-            )
         response = ""
+        
 
         # Get hub-specific assistant ID and file ID if needed
         assistant_id = l_config.get_hub_assistant_id(hub_location) if hub_location else l_config.az_assistant_id
@@ -90,87 +84,280 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
             DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default"
         )
 
+        # Use AzureChatOpenAI with Azure OpenAI and Responses API for code interpreter
+        llm = AzureChatOpenAI(
+            azure_endpoint=l_config.az_openai_endpoint,
+            azure_ad_token_provider=token_provider,
+            api_version=l_config.az_openai_api_version,
+            azure_deployment=l_config.az_deployment_name,
+            temperature=0.3,
+            use_responses_api=True,
+            include=["code_interpreter_call.outputs"]  # Include code interpreter outputs
+        )
+
+        # Prepare the file_id for the code interpreter container
+        file_id = hub_file_id if hub_file_id else l_config.file_ids
+        if file_id and file_id.startswith("file-"):
+            # Convert to assistant file ID format if needed
+            if not file_id.startswith("assistant-"):
+                file_id = f"assistant-{file_id.replace('file-', '')}"
+        
+        logger.debug(f"Word Document Generator Agent: Using file_id: {file_id}")
+
+        # Bind code interpreter tool with file_ids container
+        code_interpreter_tool = {
+            "type": "code_interpreter",
+            "container": {
+                "type": "auto",
+                "file_ids": [file_id] if file_id else []
+            }
+        }
+        
+        llm_with_tools = llm.bind_tools([code_interpreter_tool])
+
+        # Create the message for the model using structured input
+        message_content = f"{user_prompt_prefix}\n\n{query}"
+        
+        logger.debug(f"Word Document Generator Agent: Message content length: {len(message_content)}")
+        logger.debug(f"Word Document Generator Agent: Using file_id: {file_id}")
+        logger.debug("Word Document Generator Agent: Calling Responses API with code interpreter...")
+
+        # Invoke the model with Responses API
+        response = llm_with_tools.invoke([{"role": "user", "content": message_content}])
+
+        logger.debug("Word Document Generator Agent: Response received from Responses API")
+
+        # Extract file information from the response
+        l_file_id = None
+        l_file_name = None
+
+        logger.debug(f"Word Document Generator Agent: Response type: {type(response)}")
+        logger.debug(f"Word Document Generator Agent: Response content: {response.content}")
+        
+        # Check if response has content_blocks (for Responses API) or if we need to check content/tool_calls
+        if hasattr(response, 'content_blocks') and response.content_blocks:
+            logger.debug(f"Word Document Generator Agent: Parsing response with {len(response.content_blocks)} content blocks")
+            # Look for code interpreter calls and text annotations in the response content
+            for content_block in response.content_blocks:
+                logger.debug(f"Processing content block type: {content_block.get('type')}")
+                
+                if content_block.get("type") == "code_interpreter_call":
+                    # Get outputs from the code interpreter call
+                    outputs = content_block.get("outputs", [])
+                    logger.debug(f"Found {len(outputs)} outputs in code interpreter call")
+                    
+                    for output in outputs:
+                        output_type = output.get("type")
+                        logger.debug(f"Processing output type: {output_type}")
+                        
+                        # Check for file outputs which might contain our generated document
+                        if output_type == "logs":
+                            # Sometimes file paths are mentioned in logs
+                            logs_text = output.get("logs", "")
+                            if "sandbox:/mnt/" in logs_text and ".docx" in logs_text:
+                                # Extract file path from logs if present
+                                import re
+                                file_match = re.search(r'sandbox:/mnt/[^"\']*\.docx', logs_text)
+                                if file_match:
+                                    file_path = file_match.group(0)
+                                    l_file_name = os.path.basename(file_path)
+                                    logger.debug(f"Found file path in logs: {file_path}")
+                        elif "file_id" in output:
+                            l_file_id = output["file_id"]
+                            l_file_name = output.get("filename", "generated_document.docx")
+                            logger.debug(f"Found file_id in output: {l_file_id}")
+                            break
+                            
+                elif content_block.get("type") == "text":
+                    # Look for file annotations in text content
+                    annotations = content_block.get("annotations", [])
+                    logger.debug(f"Found {len(annotations)} annotations in text block")
+                    
+                    for annotation in annotations:
+                        if annotation.get("type") == "file_path":
+                            file_path_str = annotation.get("text", "")
+                            logger.debug(f"Processing file path annotation: {file_path_str}")
+                            
+                            if file_path_str.startswith("sandbox:/mnt"):
+                                l_file_id = annotation.get("file_path", {}).get("file_id")
+                                l_file_name = os.path.basename(file_path_str)
+                                logger.debug(f"Extracted file_id from annotation: {l_file_id}, file name: {l_file_name}")
+                                break
+                    
+                    # Also check the text content itself for file references
+                    text_content = content_block.get("text", "")
+                    if "sandbox:/mnt/" in text_content and ".docx" in text_content:
+                        import re
+                        file_match = re.search(r'sandbox:/mnt/[^"\']*\.docx', text_content)
+                        if file_match:
+                            file_path = file_match.group(0)
+                            l_file_name = os.path.basename(file_path)
+                            logger.debug(f"Found file reference in text: {file_path}")
+        else:
+            # AzureChatOpenAI might not have content_blocks, check alternative attributes
+            logger.debug("Word Document Generator Agent: No content_blocks found, checking alternative response format")
+            
+            # Check response.content - it's a list of content dictionaries
+            if hasattr(response, 'content') and response.content:
+                logger.debug(f"Processing response.content with {len(response.content)} items")
+                
+                # Iterate through content items looking for annotations with file information
+                for content_item in response.content:
+                    if isinstance(content_item, dict):
+                        # Check for annotations in this content item
+                        annotations = content_item.get('annotations', [])
+                        logger.debug(f"Found {len(annotations)} annotations in content item")
+                        
+                        for annotation in annotations:
+                            if annotation.get('type') == 'container_file_citation':
+                                l_file_id = annotation.get('file_id')
+                                l_file_name = annotation.get('filename', 'generated_document.docx')
+                                logger.debug(f"Found file_id in annotation: {l_file_id}, filename: {l_file_name}")
+                                break
+                        
+                        # Also check the text content for file references
+                        text_content = content_item.get('text', '')
+                        if "sandbox:/mnt/" in text_content and ".docx" in text_content:
+                            import re
+                            file_match = re.search(r'sandbox:/mnt/[^"\']*\.docx', text_content)
+                            if file_match:
+                                file_path = file_match.group(0)
+                                if not l_file_name:  # Only set if not already found from annotation
+                                    l_file_name = os.path.basename(file_path)
+                                logger.debug(f"Found file reference in text content: {file_path}")
+                    
+                    # Break if we found the file info
+                    if l_file_id:
+                        break
+
+        # Check if response has tool_calls that might contain file info
+        if not l_file_id and hasattr(response, 'tool_calls') and response.tool_calls:
+            logger.debug("Checking tool_calls for file information")
+            for tool_call in response.tool_calls:
+                logger.debug(f"Processing tool call: {tool_call}")
+                if hasattr(tool_call, 'type') and tool_call.type == 'code_interpreter_call':
+                    # Check if there are any results with file information
+                    if hasattr(tool_call, 'results'):
+                        results = tool_call.results
+                        for result in results:
+                            if 'file_id' in result:
+                                l_file_id = result['file_id']
+                                l_file_name = result.get('filename', 'generated_document.docx')
+                                logger.debug(f"Found file_id in tool_call results: {l_file_id}")
+                                break
+
+        # Additional check for response metadata or additional_kwargs
+        if not l_file_id and hasattr(response, 'additional_kwargs'):
+            logger.debug(f"Checking additional_kwargs for file information")
+            additional_kwargs = response.additional_kwargs
+            
+            # Check if there are tool_outputs with code interpreter results
+            if 'tool_outputs' in additional_kwargs:
+                tool_outputs = additional_kwargs['tool_outputs']
+                for tool_output in tool_outputs:
+                    if tool_output.get('type') == 'code_interpreter_call':
+                        # Check the outputs for file references
+                        outputs = tool_output.get('outputs', [])
+                        for output in outputs:
+                            if output.get('type') == 'logs':
+                                logs_text = output.get('logs', '')
+                                # Look for file path in logs
+                                if '/mnt/data/' in logs_text and '.docx' in logs_text:
+                                    import re
+                                    # Extract the file path from the logs
+                                    file_match = re.search(r"'(/mnt/data/[^']*\.docx)'", logs_text)
+                                    if file_match:
+                                        file_path = file_match.group(1)
+                                        if not l_file_name:  # Only set if not already found
+                                            l_file_name = os.path.basename(file_path)
+                                        logger.debug(f"Found file path in tool output logs: {file_path}")
+                                        
+                        # Also check if there's a container_id that we can use
+                        container_id = tool_output.get('container_id')
+                        if container_id and not l_file_id:
+                            # We might need to construct or look for the file_id differently
+                            logger.debug(f"Found container_id in tool output: {container_id}")
+            
+            logger.debug(f"Additional kwargs keys: {list(additional_kwargs.keys())}")
+            
+        if not l_file_id and hasattr(response, 'response_metadata'):
+            logger.debug(f"Checking response_metadata: {response.response_metadata}")
+
+        if not l_file_id:
+            logger.error("Word Document Generator Agent: No file_id found in the response")
+            logger.debug(f"Response attributes: {dir(response)}")
+            if hasattr(response, 'content_blocks'):
+                logger.debug(f"Response content blocks: {[block.get('type') for block in response.content_blocks]}")
+            return "Sorry, I was unable to generate the Word document. The code interpreter may not have created a file output. Please try again later."
+        
+        # Log the found file information
+        logger.debug(f"Successfully extracted - file_id: {l_file_id}, file_name: {l_file_name}")
+
+        # Initialize a regular OpenAI client to download the file
         client = AzureOpenAI(
             azure_endpoint=l_config.az_openai_endpoint,
             azure_ad_token_provider=token_provider,
             api_version=l_config.az_openai_api_version,
         )
 
-        # Get the assistant and thread instance for the session
-        client.beta.assistants.retrieve(assistant_id=assistant_id)
-        l_thread = client.beta.threads.retrieve(thread_id=l_thread_id)
-        logger.debug(
-            f"Debug - Word Document Generator Agent retrieved successfully, along with the session thread of the user {l_thread.id}"
-        )
-
-        # Add a user question to the thread
-        message = client.beta.threads.messages.create(
-            thread_id=l_thread.id,
-            role="user",
-            content=user_prompt_prefix + "\n" + query,
-        )
-        logger.debug(
-            f"Word Document Generator Agent: Created message bearing Message id: {message.id}"
-        )
-
-        # create a run
-        run = client.beta.threads.runs.create(
-            thread_id=l_thread.id,
-            assistant_id=assistant_id,
-            temperature=0.3,
-        )
-        logger.debug("Word Document Generator Agent: called thread run ...")
-
-        # wait for the run to complete
-        run = wait_for_run(run, l_thread.id, client)
-
-        if run.status == "failed":
-            logger.debug(
-                "Word Document Generator Agent: run has failed, extracting results ..."
-            )
-            logger.debug(
-                "Word Document Generator Agent: the thread run has failed !! \n",
-                run.model_dump_json(indent=2),
-            )
-            return "Sorry, I am unable to process your request at the moment. Please try again later."
-
-        logger.debug("Word Document Generator Agent: run completed ...")
-
-        messages = client.beta.threads.messages.list(thread_id=l_thread.id)
-        # print("Messages are **** \n", messages.model_dump_json(indent=2))
-
-        # Use this when streaming is not required
-        messages_json = json.loads(messages.model_dump_json())
-        # logger.debug("response messages_json>\n", messages_json)
-        l_file_id = None
-        l_file_name = None
-
-        # Parse the messages_json to extract file_id and filename from text annotations starting with "sandbox:/mnt"
-        for item in messages_json.get("data", []):
-            for content in item.get("content", []):
-                if "text" in content:
-                    annotations = content["text"].get("annotations", [])
+        # Extract container_id from the response annotations for proper file access
+        container_id = None
+        if hasattr(response, 'content') and response.content:
+            for content_item in response.content:
+                if isinstance(content_item, dict):
+                    annotations = content_item.get('annotations', [])
                     for annotation in annotations:
-                        if annotation.get("type") == "file_path":
-                            file_path_str = annotation.get("text", "")
-                            if file_path_str.startswith("sandbox:/mnt"):
-                                l_file_id = annotation.get("file_path", {}).get(
-                                    "file_id"
-                                )
-                                l_file_name = os.path.basename(file_path_str)
-                                logger.debug(
-                                    f"Extracted file_id: {l_file_id}, with file name: {l_file_name}"
-                                )
-                                break
-                    else:
-                        continue
-                    break
-            else:
-                continue
-            break
+                        if annotation.get('type') == 'container_file_citation':
+                            container_id = annotation.get('container_id')
+                            logger.debug(f"Found container_id: {container_id}")
+                            break
+                    if container_id:
+                        break
 
-        doc_data = client.files.content(l_file_id)
-        doc_data_bytes = doc_data.read()
+        try:
+            # Use the container files API to download files created by code interpreter
+            if container_id:
+                logger.debug(f"Using container files API - container_id: {container_id}, file_id: {l_file_id}")
+                
+                # Construct the container file endpoint URL
+                # According to OpenAI docs: /v1/containers/{container_id}/files/{file_id}/content
+                container_file_url = f"{l_config.az_openai_endpoint.rstrip('/')}/openai/v1/containers/{container_id}/files/{l_file_id}/content"
+                
+                logger.debug(f"Container file URL: {container_file_url}")
+                
+                # Use requests to get the file content with proper authentication
+                import requests
+                headers = {
+                    'Authorization': f'Bearer {token_provider()}',
+                    'api-key': token_provider()  # For Azure OpenAI
+                }
+                
+                # Try both authentication methods
+                for auth_header in [{'Authorization': f'Bearer {token_provider()}'}, {'api-key': token_provider()}]:
+                    try:
+                        response_file = requests.get(container_file_url, headers=auth_header, timeout=60)
+                        if response_file.status_code == 200:
+                            doc_data_bytes = response_file.content
+                            logger.debug(f"Successfully retrieved file using container API, size: {len(doc_data_bytes)} bytes")
+                            break
+                        else:
+                            logger.debug(f"Container API attempt failed with status {response_file.status_code}: {response_file.text}")
+                    except Exception as req_error:
+                        logger.debug(f"Container API request failed: {str(req_error)}")
+                        continue
+                else:
+                    raise Exception("All container API attempts failed")
+                    
+            else:
+                # Fallback to regular files API
+                logger.debug(f"No container_id found, trying regular files API with file_id: {l_file_id}")
+                doc_data = client.files.content(l_file_id)
+                doc_data_bytes = doc_data.read()
+                logger.debug("Successfully retrieved file using regular files API")
+                
+        except Exception as e:
+            logger.error(f"Failed to retrieve file using both container and regular APIs: {str(e)}")
+            return f"Sorry, I was able to generate the Word document '{l_file_name}' with the agenda content, but encountered an issue downloading it. The document was created successfully in the code interpreter but cannot be accessed through the download APIs. This may be a temporary issue with the file storage system. Please try running the document generation again."
 
         blob_account_name = l_config.az_storage_account_name
         az_blob_storage_endpoint = f"https://{blob_account_name}.blob.core.windows.net/"
@@ -197,14 +384,7 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
     return response
 
 
-# function returns the run when status is no longer queued or in_progress
-def wait_for_run(run, thread_id, client):
-    while run.status == "queued" or run.status == "in_progress":
-        run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
-        # print("Run status:", run.status)
-        time.sleep(0.5)
-    logger.debug(f"Run status: {run.status}")
-    return run
+# The wait_for_run function is no longer needed with the Responses API implementation
 
 
 def upload_document_to_blob_storage_using_mi(
