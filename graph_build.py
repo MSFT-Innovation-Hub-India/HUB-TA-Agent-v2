@@ -607,7 +607,7 @@ class ToDocumentGenerator(BaseModel):
         json_schema_extra = {
             "example": {
                 "query": "| Time (IST)          | Speaker             | Topic                      | Description ...",
-                "config": '{{"configurable": {"customer_name": "Ravi Kumar","thread_id": "abcd12344","asst_thread_id": "bcde56789"}}',
+                "config": '{{"configurable": {"customer_name": "Ravi Kumar","thread_id": "abcd12344"}}',
             },
         }
 

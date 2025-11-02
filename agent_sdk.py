@@ -13,7 +13,7 @@ from os import environ
 from typing import Optional
 
 from dotenv import load_dotenv
-from openai import AsyncAzureOpenAI, AzureOpenAI
+from openai import AsyncAzureOpenAI
 
 try:  # GA packages expose both underscore and dotted namespaces depending on version
     from microsoft_agents.activity import load_configuration_from_env
@@ -40,7 +40,7 @@ except ImportError:  # pragma: no cover - fallback for environments still publis
         TurnState,
     )
 
-from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+from azure.identity import DefaultAzureCredential
 
 import graph_build
 from config import DefaultConfig
@@ -120,7 +120,6 @@ az_openai_api_version = environ.get("az_openai_api_version", "2025-01-01-preview
 
 credential = DefaultAzureCredential()
 openai_client: Optional[AsyncAzureOpenAI] = None
-sync_openai_client: Optional[AzureOpenAI] = None
 
 
 def _parse_known_hubs() -> dict[str, str]:
@@ -185,31 +184,7 @@ else:
     logger.warning("Azure OpenAI endpoint not configured")
 
 
-def _get_sync_openai_client() -> Optional[AzureOpenAI]:
-    global sync_openai_client
 
-    if sync_openai_client is not None:
-        return sync_openai_client
-
-    if not az_openai_endpoint:
-        logger.warning("Azure OpenAI endpoint not configured; cannot create sync client")
-        return None
-
-    try:
-        token_provider = get_bearer_token_provider(
-            DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default"
-        )
-        sync_openai_client = AzureOpenAI(
-            azure_endpoint=az_openai_endpoint,
-            azure_ad_token_provider=token_provider,
-            api_version=az_openai_api_version,
-        )
-        logger.debug("Initialized synchronous Azure OpenAI client for Assistants API operations")
-    except Exception as exc:
-        logger.error(f"Failed to initialize synchronous Azure OpenAI client: {exc}")
-        sync_openai_client = None
-
-    return sync_openai_client
 
 
 class ConversationStateManager:
@@ -251,7 +226,6 @@ class ConversationStateManager:
             "configurable": {
                 "user_name": user_name,
                 "thread_id": None,
-                "asst_thread_id": None,
                 "last_message_timestamp": None,
                 "hub_location": None,
                 "awaiting_hub_location": True,
@@ -273,7 +247,6 @@ class ConversationStateManager:
                 configurable.setdefault(
                     "awaiting_hub_location", configurable.get("hub_location") is None
                 )
-                configurable.setdefault("asst_thread_id", None)
                 logger.info(f"Loaded conversation state for user {user_name} from date folder")
                 return stored_state
 
@@ -287,7 +260,6 @@ class ConversationStateManager:
                 configurable.setdefault(
                     "awaiting_hub_location", configurable.get("hub_location") is None
                 )
-                configurable.setdefault("asst_thread_id", None)
                 logger.info(f"Loaded conversation state for user {user_name} from legacy format")
                 return stored_state
 
@@ -374,25 +346,7 @@ async def check_blob_storage_access(context: TurnContext) -> bool:
 conversation_state_manager = ConversationStateManager()
 
 
-def _ensure_assistants_thread(conversation_state: dict) -> Optional[str]:
-    configurable = conversation_state.setdefault("configurable", {})
-    existing_thread = configurable.get("asst_thread_id")
-    if existing_thread:
-        return existing_thread
 
-    client = _get_sync_openai_client()
-    if not client:
-        logger.warning("Unable to create Assistants API thread because the Azure OpenAI client is unavailable")
-        return None
-
-    try:
-        thread = client.beta.threads.create()
-        configurable["asst_thread_id"] = thread.id
-        logger.info("Created new Assistants API thread: %s", thread.id)
-        return thread.id
-    except Exception as exc:
-        logger.error(f"Failed to create Assistants API thread: {exc}")
-        return None
 
 
 # Handle multi-line user messages that should route to the same handler while still
@@ -489,11 +443,9 @@ async def on_message(context: TurnContext, state: TurnState):
                 if (current_time - last_dt) > timedelta(minutes=10):
                     logger.info("Conversation stale (>10 minutes), resetting thread_id")
                     conversation_state["configurable"]["thread_id"] = None
-                    conversation_state["configurable"]["asst_thread_id"] = None
             except Exception as exc:
                 logger.error(f"Error parsing timestamp: {exc}")
                 conversation_state["configurable"]["thread_id"] = None
-                conversation_state["configurable"]["asst_thread_id"] = None
 
         conversation_state["configurable"]["last_message_timestamp"] = current_time.isoformat()
 
@@ -533,7 +485,6 @@ def get_cvp_response(user_input: str, user_name: str = "User", conversation_stat
                 "configurable": {
                     "user_name": user_name,
                     "thread_id": str(uuid.uuid4()),
-                    "asst_thread_id": None,
                     "hub_location": None,
                     "awaiting_hub_location": True,
                 }
@@ -548,19 +499,13 @@ def get_cvp_response(user_input: str, user_name: str = "User", conversation_stat
             "awaiting_hub_location",
             conversation_state["configurable"].get("hub_location") is None,
         )
-        conversation_state["configurable"].setdefault("asst_thread_id", None)
 
         if conversation_state["configurable"].get("thread_id") is None:
             l_graph_thread_id = str(uuid.uuid4())
             conversation_state["configurable"]["thread_id"] = l_graph_thread_id
             logger.info(f"Created new thread_id: {l_graph_thread_id}")
 
-        if not conversation_state["configurable"].get("asst_thread_id"):
-            asst_thread_id = _ensure_assistants_thread(conversation_state)
-            if asst_thread_id:
-                logger.info("Associated Assistants API thread %s with the conversation", asst_thread_id)
-            else:
-                logger.warning("Assistants API thread could not be created; downstream tools may fail")
+
 
         logger.info(
             "Processing user input for %s with thread_id: %s",

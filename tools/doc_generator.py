@@ -72,12 +72,11 @@ def generate_agenda_document(query: str, config: RunnableConfig) -> str:
         response = ""
         
 
-        # Get hub-specific assistant ID and file ID if needed
-        assistant_id = l_config.get_hub_assistant_id(hub_location) if hub_location else l_config.az_assistant_id
+        # Get hub-specific file ID if needed for code interpreter
         hub_file_id = l_config.get_hub_assistant_file_id(hub_location) if hub_location else None
         
         if hub_location and not hub_file_id:
-            logger.warning(f"No hub-specific file ID found for location: {hub_location}, using default assistant")
+            logger.warning(f"No hub-specific file ID found for location: {hub_location}, using default file")
 
         # Initialize Azure OpenAI Service client with Entra ID authentication
         token_provider = get_bearer_token_provider(

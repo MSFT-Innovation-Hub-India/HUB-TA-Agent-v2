@@ -42,9 +42,7 @@ class DefaultConfig:
             print("WARNING: Application Insights key is None or empty!")
             print(f"Environment keys available: {list(environ.keys())}")
         
-        # Azure Assistant Configuration
-        self.AZURE_ASSISTANT_ID = environ.get("az_assistant_id")
-        self.az_assistant_id = environ.get("az_assistant_id")
+
         
         # Hub-specific Assistant File IDs (parse JSON from environment)
         self._hub_assistant_file_ids = {}
@@ -120,20 +118,7 @@ class DefaultConfig:
             
         return file_id
     
-    def get_hub_assistant_id(self, hub_name: str) -> str:
-        """
-        Get the assistant ID for a specific hub.
-        Currently returns the global assistant ID, but can be extended to support hub-specific assistants.
-        
-        Args:
-            hub_name: The hub name 
-            
-        Returns:
-            The assistant ID (currently global, but extensible for hub-specific assistants)
-        """
-        # For now, return the global assistant ID
-        # This method is created for future extensibility if different hubs need different assistants
-        return self.az_assistant_id
+
     
     def get_all_hub_file_ids(self) -> dict:
         """
