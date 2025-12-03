@@ -50,7 +50,7 @@ The application uses a conversational agent approach with multiple specialized c
 
 
 
-![alt text](./images/architecture.png)
+![alt text](./images/architecture_new.png)
 
 
 ## Prerequisites
