@@ -75,9 +75,6 @@ class DefaultConfig:
         # Prefer explicit az_storage_rg_name, fall back to az_storage_rg for backward compatibility
         self.az_storage_rg_name = environ.get("az_storage_rg_name") or environ.get("az_storage_rg")
         self.az_storage_rg = environ.get("az_storage_rg")
-        
-        # Azure Key Vault Configuration
-        self.az_key_vault_name = environ.get("akv")
     
     def normalize_hub_name(self, hub_name: str) -> str:
         """

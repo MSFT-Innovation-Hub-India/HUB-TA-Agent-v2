@@ -137,7 +137,80 @@ def _parse_known_hubs() -> dict[str, str]:
 KNOWN_HUBS = _parse_known_hubs()
 
 
+async def _detect_hub_location_with_llm(user_input: str) -> Optional[str]:
+    """
+    Use LLM to resolve user input to an exact hub city name from the configured list.
+    
+    Args:
+        user_input: The user's input describing their hub location
+        
+    Returns:
+        The exact city name from hub_cities list, or None if no match found
+    """
+    if not user_input or not KNOWN_HUBS:
+        return None
+    
+    # First try simple keyword matching as fallback
+    normalized_message = config.normalize_hub_name(user_input)
+    if normalized_message:
+        for normalized_city, original_city in KNOWN_HUBS.items():
+            if normalized_city and normalized_city in normalized_message:
+                return original_city
+    
+    # If simple matching fails and we have OpenAI client, use LLM
+    if not openai_client:
+        logger.warning("OpenAI client not initialized, falling back to keyword matching only")
+        return None
+    
+    try:
+        hub_cities_list = list(KNOWN_HUBS.values())
+        
+        system_prompt = f"""You are a city name resolver. Your job is to match user input to one of the exact city names from a predefined list.
+
+Available hub cities:
+{', '.join(hub_cities_list)}
+
+Rules:
+1. If the user's input clearly refers to one of the cities in the list, return ONLY that exact city name from the list.
+2. Handle indirect references (e.g., "garden city of India" -> "Bengaluru", "Big Apple" -> "New York")
+3. Handle variations and nicknames of city names
+4. If the input doesn't match any city in the list, return "NO_MATCH"
+5. Return ONLY the city name or "NO_MATCH", nothing else"""
+
+        user_prompt = f"User input: {user_input}\n\nWhich hub city does this refer to?"
+        
+        response = await openai_client.chat.completions.create(
+            model=az_deployment_name,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.0,
+            max_tokens=50
+        )
+        
+        resolved_city = response.choices[0].message.content.strip()
+        
+        if resolved_city == "NO_MATCH":
+            logger.info(f"LLM could not match user input '{user_input}' to any hub city")
+            return None
+        
+        # Verify the LLM response is actually in our list
+        if resolved_city in KNOWN_HUBS.values():
+            logger.info(f"LLM resolved '{user_input}' to hub city '{resolved_city}'")
+            return resolved_city
+        
+        logger.warning(f"LLM returned '{resolved_city}' which is not in the hub cities list")
+        return None
+        
+    except Exception as exc:
+        logger.error(f"Error using LLM to resolve hub location: {exc}")
+        # Fallback to None if LLM fails
+        return None
+
+
 def _detect_hub_location(message: str) -> Optional[str]:
+    """Legacy sync wrapper - kept for backward compatibility during migration."""
     if not message:
         return None
 
@@ -397,7 +470,12 @@ async def on_message(context: TurnContext, state: TurnState):
             "awaiting_hub_location", configurable_state.get("hub_location") is None
         )
 
-        detected_hub = _detect_hub_location(user_message)
+        # Use LLM-based hub detection
+        detected_hub = await _detect_hub_location_with_llm(user_message)
+        
+        # Check if we're waiting for hub location
+        awaiting_hub_location = configurable_state.get("awaiting_hub_location", False)
+        
         if detected_hub:
             previous_hub = configurable_state.get("hub_location")
             configurable_state["hub_location"] = detected_hub
@@ -406,9 +484,18 @@ async def on_message(context: TurnContext, state: TurnState):
                 logger.info("Updated hub location from %s to %s", previous_hub, detected_hub)
             elif not previous_hub:
                 logger.info("Captured hub location %s from user input", detected_hub)
+        elif awaiting_hub_location and user_message.strip():
+            # User provided input while we're waiting for hub, but it didn't match
+            available_hubs = ", ".join(sorted(KNOWN_HUBS.values())) if KNOWN_HUBS else "(please specify your hub)"
+            no_match_msg = (
+                f"I couldn't match '{user_message}' to any of our Innovation Hub locations. "
+                f"Please provide one of the following supported hubs: {available_hubs}."
+            )
+            await context.send_activity(MessageFactory.text(no_match_msg))
+            await conversation_state_manager.save_conversation_state(user_name, conversation_state, context)
+            return
 
         hub_location = configurable_state.get("hub_location")
-        awaiting_hub_location = configurable_state.get("awaiting_hub_location", hub_location is None)
 
         if not hub_location:
             configurable_state["awaiting_hub_location"] = True
