@@ -1,0 +1,56 @@
+{
+    "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.19/MicrosoftTeams.schema.json",
+    "manifestVersion": "1.19",
+    "version": "1.0.0",
+    "id": "d47cdeb7-20ce-4418-9da1-9048571126b8",
+    "developer": {
+        "name": "Srikantan Sankaran",
+        "websiteUrl": "https://www.example.com",
+        "privacyUrl": "https://www.example.com/privacy",
+        "termsOfUseUrl": "https://www.example.com/termofuse"
+    },
+    "icons": {
+        "color": "TAB.png",
+        "outline": "outline.png"
+    },
+    "name": {
+        "short": "TAB",
+        "full": "Hub TA Buddy"
+    },
+    "description": {
+        "short": "helps prepare Agenda for their Sessiosn with customers",
+        "full": "This is an App that helps the Innovation Hub Team prepare Agenda for their Sessions with customers"
+    },
+    "accentColor": "#FFFFFF",
+    "bots": [
+        {
+            "botId": "c01a1f0f-e504-4bdc-ad1a-6454dc7cd407",
+            "scopes": [
+                "personal",
+                "team",
+                "groupChat"
+            ],
+            "supportsFiles": false,
+            "isNotificationOnly": false,
+            "commandLists": [
+                {
+                  "scopes": ["personal", "team", "groupChat"],
+                  "commands": [
+                      {
+                          "title": "Hi",
+                          "description": "Say hi to the bot."
+                      }
+                  ]
+                }
+            ]
+        }
+    ],
+    "composeExtensions": [],
+    "configurableTabs": [],
+    "staticTabs": [],
+    "permissions": [
+        "identity",
+        "messageTeamMembers"
+    ],
+    "validDomains": ["az-bengaluru-containerapp.whitewave-bcdd5e73.southindia.azurecontainerapps.io"]
+}

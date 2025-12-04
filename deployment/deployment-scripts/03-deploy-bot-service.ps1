@@ -6,6 +6,7 @@
 .DESCRIPTION
     This script automates the deployment of Azure Bot Service including:
     - Creating a Microsoft Entra ID App Registration (Single Tenant)
+    - Creating a Service Principal (Enterprise Application) for the App Registration
     - Generating a client secret with 25-day validity
     - Creating an Azure Bot resource (Global type)
     - Saving credentials to input-config for use by Container App deployment
@@ -131,8 +132,24 @@ if (-not $WhatIf) {
     
     Write-Host "  App ID (Client ID): $appId" -ForegroundColor Green
     Write-Host "  Tenant ID: $tenantId" -ForegroundColor Green
+    
+    # Create Service Principal for the App Registration (required for token acquisition)
+    Write-Host "  Creating Service Principal for App Registration..." -ForegroundColor Yellow
+    $existingSp = az ad sp show --id $appId 2>$null
+    
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Service Principal already exists." -ForegroundColor Yellow
+    } else {
+        $spResult = az ad sp create --id $appId 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to create Service Principal: $spResult"
+            exit 1
+        }
+        Write-Host "  Service Principal created successfully." -ForegroundColor Green
+    }
 } else {
     Write-Host "  [WhatIf] Would create App Registration: $appDisplayName" -ForegroundColor Magenta
+    Write-Host "  [WhatIf] Would create Service Principal for the App Registration" -ForegroundColor Magenta
 }
 
 Write-Host ""

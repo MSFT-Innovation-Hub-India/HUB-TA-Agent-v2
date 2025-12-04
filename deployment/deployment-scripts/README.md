@@ -107,6 +107,7 @@ Deploys Azure Container Registry:
 
 Deploys Azure Bot Service (run BEFORE Container App):
 - Creates Microsoft Entra ID App Registration (Single Tenant)
+- Creates Service Principal (Enterprise Application) for the App Registration
 - Generates client secret (25-day validity)
 - Creates Azure Bot resource with placeholder endpoint
 - Saves Bot credentials to input-config
