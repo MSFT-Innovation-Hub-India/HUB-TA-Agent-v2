@@ -2,7 +2,7 @@
     "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.19/MicrosoftTeams.schema.json",
     "manifestVersion": "1.19",
     "version": "1.0.0",
-    "id": "d47cdeb7-20ce-4418-9da1-9048571126b8",
+    "id": "d47cdeb7-20ce-4418-9db1-9048571126b8",
     "developer": {
         "name": "Srikantan Sankaran",
         "websiteUrl": "https://www.example.com",
@@ -14,7 +14,7 @@
         "outline": "outline.png"
     },
     "name": {
-        "short": "TAB",
+        "short": "TABAgent",
         "full": "Hub TA Buddy"
     },
     "description": {
@@ -52,5 +52,5 @@
         "identity",
         "messageTeamMembers"
     ],
-    "validDomains": ["az-bengaluru-containerapp.whitewave-bcdd5e73.southindia.azurecontainerapps.io"]
+    "validDomains": ["az-bengaluru-containerapp.jollybush-a5a3b384.southindia.azurecontainerapps.io"]
 }

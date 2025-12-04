@@ -1,0 +1,16 @@
+# User input not required
+az_openai_api_version="2025-03-01-preview"
+az_blob_container_name="agenda-docs"
+az_blob_container_name_hubmaster="hub-master"
+az_blob_container_name_state="tab-state"
+az_blob_golden_docs_container_name="golden-repo"
+log_level="DEBUG"
+hub_cities="Atlanta, Boston, Chicago, Dallas, Detroit, Houston, Irvine, Minneapolis, New York, Philadelphia, Seattle, Silicon Valley, St. Louis, Toronto, Washington, Mexico City, Sao Paulo, Amsterdam, Brussels, Copenhagen, Dubai, Herzliya, Istanbul, London, Johannesburg, Milan, Munich, Oslo, Paris, Stockholm, Warsaw, Zurich, Beijing, Bengaluru, Seoul, Shanghai, Singapore, Sydney, Taipei, Tokyo"
+
+
+# user input required
+hub-city=bengaluru
+az-region=southindia
+az-tab-rg=tab-agent-rg
+host-entra-tenant-id=72f988bf-86f1-41af-91ab-2d7cd011db47
+az-subscription-id=35d56b9b-9660-4b8a-aaf6-76cfc033ac97
