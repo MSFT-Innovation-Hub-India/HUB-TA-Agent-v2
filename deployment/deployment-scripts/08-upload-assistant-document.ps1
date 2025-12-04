@@ -69,13 +69,18 @@ Get-Content $inputConfigPath | ForEach-Object {
 
 $openAIEndpoint = $config["az-tab-openai-endpoint"]
 $openAIKey = $config["az-tab-openai-key"]
+$hubCity = $config["hub-city"]
+
+# Normalize hub city name
+$normalizedHubCity = ($hubCity -replace '[^a-zA-Z0-9]', '').ToLower()
 
 Write-Host "  Azure OpenAI Endpoint: $openAIEndpoint" -ForegroundColor Green
+Write-Host "  Hub City: $hubCity (normalized: $normalizedHubCity)" -ForegroundColor Green
 Write-Host ""
 
 # Validate required configurations
-if (-not $openAIEndpoint -or -not $openAIKey) {
-    Write-Error "Missing Azure OpenAI configuration. Please run 06-deploy-azure-openai.ps1 first."
+if (-not $openAIEndpoint -or -not $openAIKey -or -not $hubCity) {
+    Write-Error "Missing Azure OpenAI or hub-city configuration. Please run previous deployment scripts first."
     exit 1
 }
 
@@ -153,6 +158,10 @@ if (-not $WhatIf -and $fileId) {
     
     $inputConfigContent = Update-ConfigEntry -Content $inputConfigContent -Key "hub-doc-template-fileid" -Value $fileId
     
+    # Create the hub_assistant_file_ids JSON value
+    $hubAssistantFileIds = "{`"$normalizedHubCity`": `"$fileId`"}"
+    $inputConfigContent = Update-ConfigEntry -Content $inputConfigContent -Key "hub_assistant_file_ids" -Value $hubAssistantFileIds
+    
     # Ensure file ends with newline
     $inputConfigContent = $inputConfigContent.TrimEnd() + "`n"
     
@@ -160,8 +169,9 @@ if (-not $WhatIf -and $fileId) {
     
     Write-Host "  Updated input-config with:" -ForegroundColor Green
     Write-Host "    hub-doc-template-fileid=$fileId" -ForegroundColor White
+    Write-Host "    hub_assistant_file_ids=$hubAssistantFileIds" -ForegroundColor White
 } else {
-    Write-Host "  [WhatIf] Would update input-config with hub-doc-template-fileid" -ForegroundColor Magenta
+    Write-Host "  [WhatIf] Would update input-config with hub-doc-template-fileid and hub_assistant_file_ids" -ForegroundColor Magenta
 }
 
 Write-Host ""
@@ -176,8 +186,10 @@ Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Document: Innovation Hub Agenda Format.docx" -ForegroundColor Green
 Write-Host "  Purpose: assistants" -ForegroundColor Green
+Write-Host "  Hub City: $normalizedHubCity" -ForegroundColor Green
 if (-not $WhatIf -and $fileId) {
     Write-Host "  File ID: $fileId" -ForegroundColor Green
+    Write-Host "  hub_assistant_file_ids: {`"$normalizedHubCity`": `"$fileId`"}" -ForegroundColor Green
 }
 Write-Host ""
 Write-Host "Document upload completed successfully!" -ForegroundColor Green

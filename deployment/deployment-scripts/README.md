@@ -145,6 +145,57 @@ Deploys Azure Application Insights:
 .\05-deploy-appinsights.ps1 -WhatIf  # Preview mode
 ```
 
+### 06-deploy-azure-openai.ps1
+
+Deploys Azure OpenAI Service:
+- Creates Azure OpenAI resource
+- Deploys GPT-4o model
+- Saves endpoint and deployment name to input-config
+
+```powershell
+.\06-deploy-azure-openai.ps1
+.\06-deploy-azure-openai.ps1 -WhatIf  # Preview mode
+```
+
+### 07-setup-managed-identity.ps1
+
+Sets up Managed Identity and RBAC:
+- Enables system-assigned managed identity on Container App
+- Assigns Storage Account roles (Contributor, Blob Data Contributor, Blob Data Reader)
+- Assigns Azure OpenAI roles (Cognitive Services Contributor, OpenAI Contributor)
+
+```powershell
+.\07-setup-managed-identity.ps1
+.\07-setup-managed-identity.ps1 -WhatIf  # Preview mode
+```
+
+### 08-upload-assistant-document.ps1
+
+Uploads assistant document to Azure OpenAI:
+- Uploads `Innovation Hub Agenda Format.docx` to Azure OpenAI Files API
+- Saves file ID to input-config for assistant configuration
+- Creates `hub_assistant_file_ids` JSON mapping
+
+```powershell
+.\08-upload-assistant-document.ps1
+.\08-upload-assistant-document.ps1 -WhatIf  # Preview mode
+.\08-upload-assistant-document.ps1 -ForceUpload  # Force re-upload even if exists
+```
+
+### 09-configure-container-app-env.ps1
+
+Configures all environment variables on the Container App:
+- Sets bot credentials (TENANT_ID, CLIENT_ID, CLIENT_SECRET, HOST_TENANT_ID)
+- Sets Azure OpenAI settings (endpoint, deployment, API version)
+- Sets hub configuration (hub_cities, hub_assistant_file_ids, file_ids)
+- Sets blob storage settings (account, containers, resource group)
+- Sets logging and monitoring (log_level, Application Insights)
+
+```powershell
+.\09-configure-container-app-env.ps1
+.\09-configure-container-app-env.ps1 -WhatIf  # Preview mode
+```
+
 ### Quick Start - Full Deployment
 
 ```powershell
@@ -156,6 +207,10 @@ cd deployment/deployment-scripts
 .\03-deploy-bot-service.ps1
 .\04-deploy-container-app.ps1
 .\05-deploy-appinsights.ps1
+.\06-deploy-azure-openai.ps1
+.\07-setup-managed-identity.ps1
+.\08-upload-assistant-document.ps1
+.\09-configure-container-app-env.ps1
 ```
 
 ## Folder Structure
@@ -178,7 +233,11 @@ deployment/
     ├── 02-deploy-container-registry.ps1
     ├── 03-deploy-bot-service.ps1
     ├── 04-deploy-container-app.ps1
-    └── 05-deploy-appinsights.ps1
+    ├── 05-deploy-appinsights.ps1
+    ├── 06-deploy-azure-openai.ps1
+    ├── 07-setup-managed-identity.ps1
+    ├── 08-upload-assistant-document.ps1
+    └── 09-configure-container-app-env.ps1
 ```
 
 ## Input Config Reference
@@ -203,8 +262,15 @@ The `input-config` file is populated by the scripts. Here are all the keys:
 | `az-tab-containerapp-name` | Script 04 | Container App name |
 | `az-tab-containerapp-url` | Script 04 | Container App URL |
 | `az-tab-bot-messaging-endpoint` | Script 04 | Bot messaging endpoint |
+| `az-tab-containerapp-identity-principal-id` | Script 07 | Container App Managed Identity Principal ID |
 | `az-tab-appinsights-name` | Script 05 | Application Insights name |
 | `az-tab-appinsights-connection-string` | Script 05 | App Insights connection string |
+| `az-tab-openai-name` | Script 06 | Azure OpenAI resource name |
+| `az-tab-openai-endpoint` | Script 06 | Azure OpenAI endpoint URL |
+| `az-tab-openai-key` | Script 06 | Azure OpenAI key |
+| `az-tab-openai-deployment` | Script 06 | Azure OpenAI model deployment name |
+| `hub-doc-template-fileid` | Script 08 | Azure OpenAI file ID for assistant document |
+| `hub_assistant_file_ids` | Script 08 | JSON map of hub city to file IDs |
 
 ## Troubleshooting
 
