@@ -1,0 +1,20 @@
+# Solution Envisioning – UD Trucks
+
+**Customer Name:** UD Trucks  
+**Date of Engagement:** 07-May-2025  
+**Location:** Microsoft Innovation Hub, Bengaluru  
+**Engagement Type:** Solution Envisioning
+
+
+## Agenda
+
+| Time (IST)           | Speaker                        | Topic                                             | Description |
+|----------------------|--------------------------------|---------------------------------------------------|-------------|
+| 10:00 AM – 10:05 AM  | Moderator                      | Welcome                                           | Welcome customer attendees and introduce the Microsoft team & Innovation Hub |
+| 10:05 AM – 10:15 AM  | UD Trucks Team                 | Introduction and Top of Mind (Vision and Key Asks) |  |
+| 10:15 AM – 11:00 AM  | Bishnu Agrawal<br>Technical Architect, Microsoft Innovation Hub | Data & Advanced Analytics – The Trail of Data Driven Decisions | Data is growing at an unprecedented pace, and Enterprises are grappling with the very thought of establishing a ‘Single Version of Truth’. As we consider data lake as an ideal state towards realizing the data consolidation, it is important to understand the tenets leading to creation of ‘Data as a Service’.<br>During this session, we will establish this very construct before delving into how best to harness the power of data.<br>Experience the future of Data Platform with<br>- Overview of MS Fabric<br>- Migrations from other data sources to One Lake<br>- One Lake Experience<br>- Real Time Analytics<br>- Copilots with Microsoft Data Fabric<br>- Power BI Copilot (Designer & End user experience)<br>- Reason over the data in Natural Language using Data Agents. Publish the Data Agents to Copilot in Microsoft Fabric |
+| 12:00 PM – 12:15 PM  | Break                          |                                                   |             |
+| 12:15 PM – 1:30 PM   | Bishnu Agrawal<br>Technical Architect, Microsoft Innovation Hub | Data Governance                                   | Discuss how Microsoft Purview could be used as a one stop shop to handle Governance on Data, ensuring Enterprises comply with all Statutory regulations prevalent in the industry.<br>- Discuss traceability features in the platform right from source, through all the transformation and sink<br>- Discuss the Data Governance capabilities that the platform offers<br>- Tracking data quality during transformation, getting snapshots of the quantity of data processed, etc.<br>- Showcase real world Data architectures |
+| 1:30 PM – 2:30 PM    | Lunch                          |                                                   |             |
+| 2:30 PM – 4:00 PM    | Srikantan Sankaran<br>Sr. Technical Architect, Microsoft Innovation Hub | AI for the Enterprise using Azure Foundry          | Azure AI Foundry is a unified platform that helps enterprises build, test, host, and evaluate generative AI applications—including agentic solutions—securely and at scale. We will discuss the following:<br>- Model Development & Evaluation: Build, fine-tune, and benchmark generative models with enterprise-grade tools.<br>- Agentic Workflows: Create autonomous agents that interact with enterprise systems and data.<br>- Secure Hosting & Deployment: Scalable infrastructure with built-in governance and compliance.<br>- Enterprise Data Integration: RAG pipelines for context-aware AI using internal data sources.<br>- Responsible AI & Safety: Tools for safety testing<br>We will also cover the following topics:<br>- Building a pipeline that involves calls to different Models<br>- Reasoning over images in documents, like charts, graphs, etc<br>- Reasoning over videos and extracting key input from it. How to handle scenarios where the audio quality is poor or has background noise<br>- Use GitHub Copilot to implement use cases that involve UI building |
+| 4:00 PM – 4:15 PM    | Wrap up & Next steps           | UD Trucks & Microsoft Teams                       |             |
