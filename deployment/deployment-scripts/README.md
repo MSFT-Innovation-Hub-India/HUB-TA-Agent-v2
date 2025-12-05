@@ -48,20 +48,22 @@ This will automatically install any required extensions without prompting.
 
 ## Configuration
 
-Before running the deployment scripts, update the `input-config` file in the `deployment` folder:
+Before running the deployment scripts, rename `input-config-begin` file to `input-config` file in the `deployment` folder:
 
 ```
 hub-city=<your-hub-city-name>
 az-region=<azure-region>
 az-tab-rg=<resource-group-name>
+host-entra-tenant-id=<CORP Entra Tenant ID used in Teams>
+az-subscription-id=<Your Azure Subscription ID>
 ```
 
 ### Configuration Values
 
 | Config Key | Description | Example |
 |------------|-------------|---------|
-| `hub-city` | The Innovation Hub city for this deployment | `bengaluru`, `New York`, `Silicon Valley` |
-| `az-region` | Azure region for resource deployment | `south-india`, `eastus`, `westeurope` |
+| `hub-city` | The Innovation Hub city for this deployment | `bengaluru`, `New York`, `Tokyo` |
+| `az-region` | Azure region for resource deployment | `southindia`, `eastus`, `westeurope` |
 | `az-tab-rg` | Resource Group name for TAB-Agent resources | `tab-agent-rg` |
 
 ### Hub City Name Normalization
@@ -72,7 +74,6 @@ The hub city name is automatically normalized to match the application logic:
 
 Examples:
 - `New York` → `newyork`
-- `Silicon Valley` → `siliconvalley`
 - `Bengaluru` → `bengaluru`
 
 ## Deployment Scripts
@@ -212,6 +213,36 @@ cd deployment/deployment-scripts
 .\07-setup-managed-identity.ps1
 .\08-upload-assistant-document.ps1
 .\09-configure-container-app-env.ps1
+```
+
+### Updating Code After Deployment
+
+When you update the application code and need to redeploy:
+
+```powershell
+cd deployment/deployment-scripts
+
+# Rebuild Docker image, push to ACR, and update Container App
+.\04-deploy-container-app.ps1
+
+# If environment variables changed, also run:
+.\09-configure-container-app-env.ps1
+```
+
+The script will:
+1. Build a new Docker image with a timestamp tag
+2. Push the image to Azure Container Registry
+3. Update the Container App with the new image
+
+Use `-SkipBuild` flag to update Container App without rebuilding the image.
+
+### Updating Blob Storage Documents
+
+When you add or modify documents in the `blob-store` folder:
+
+```powershell
+# Re-run to upload new/updated files (uses --overwrite)
+.\01-deploy-blob-storage.ps1
 ```
 
 ## Folder Structure

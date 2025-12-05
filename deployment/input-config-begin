@@ -12,5 +12,5 @@ hub_cities="Atlanta, Boston, Chicago, Dallas, Detroit, Houston, Irvine, Minneapo
 hub-city=bengaluru
 az-region=southindia
 az-tab-rg=tab-agent-rg
-host-entra-tenant-id=72f988bf-86f1-41af-91ab-2d7cd011db47
-az-subscription-id=35d56b9b-9660-4b8a-aaf6-76cfc033ac97
+host-entra-tenant-id=
+az-subscription-id=

@@ -12,8 +12,8 @@ hub_cities="Atlanta, Boston, Chicago, Dallas, Detroit, Houston, Irvine, Minneapo
 hub-city=bengaluru
 az-region=southindia
 az-tab-rg=tab-agent-rg
-host-entra-tenant-id=72f988bf-86f1-41af-91ab-2d7cd011db47
-az-subscription-id=35d56b9b-9660-4b8a-aaf6-76cfc033ac97
+host-entra-tenant-id=
+az-subscription-id=
 
 # Storage Account Name
 az-tab-storage-account=tabbengaluru
@@ -26,22 +26,22 @@ az-tab-acr-password=<admin password>
 
 # Azure Log Analytics
 az-tab-log-analytics-name=az-bengaluru-log-analytics
-az-tab-log-analytics-workspace-id=541e4d10-50b0-45d8-9f1c-270a72ad11f0
+az-tab-log-analytics-workspace-id=
 az-tab-log-analytics-key=<log analytics key>
 
 # Azure Container Apps
 az-tab-containerapp-env=az-bengaluru-containerapp-env
 az-tab-containerapp-name=az-bengaluru-containerapp
-az-tab-containerapp-url=https://az-bengaluru-containerapp.whitewave-bcdd5e73.southindia.azurecontainerapps.io
+az-tab-containerapp-url=https://<container-app-name>.southindia.azurecontainerapps.io
 az-tab-containerapp-image=tabbengaluruacr.azurecr.io/tab-agent-bot:2025-12-04_1553
 
 # Azure Bot Service
 service-management-reference=e4847f9a-c5dc-435d-9d53-9b9c65b154e7
 az-tab-bot-name=tab-bengaluru-agent
-az-tab-bot-app-id=c01a1f0f-e504-4bdc-ad1a-6454dc7cd407
-az-tab-bot-tenant-id=16b3c013-d300-468d-ac64-7eda0820b6d3
+az-tab-bot-app-id=
+az-tab-bot-tenant-id=
 az-tab-bot-client-secret=<bot client secret>
-az-tab-bot-messaging-endpoint=https://az-bengaluru-containerapp.whitewave-bcdd5e73.southindia.azurecontainerapps.io/api/messages
+az-tab-bot-messaging-endpoint=https://<container-app-name>.southindia.azurecontainerapps.io/api/messages
 
 # Azure App Insights
 az-tab-appinsights-name=az-bengaluru-appinsights
@@ -49,9 +49,9 @@ az-tab-appinsights-connection-string=InstrumentationKey=<App Insights connnectio
 
 # Azure OpenAI
 az-tab-openai-name=az-bengaluru-openai
-az-tab-openai-endpoint=https://az-bengaluru-openai.openai.azure.com/
+az-tab-openai-endpoint=https://<az-openai-resource>.openai.azure.com/
 az-tab-openai-key=<openai key>
 az-tab-openai-deployment=gpt-4o
-az-tab-containerapp-identity-principal-id=6e47816c-3b9a-44b2-b682-27ab3a3d3640
+az-tab-containerapp-identity-principal-id=
 hub-doc-template-fileid=assistant-RMtH49WbYjQ1oJFbeNpcmr
 hub_assistant_file_ids={"bengaluru": "assistant-RMtH49WbYjQ1oJFbeNpcmr"}
