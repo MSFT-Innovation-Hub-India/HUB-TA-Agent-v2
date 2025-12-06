@@ -198,94 +198,6 @@ Configures all environment variables on the Container App:
 .\09-configure-container-app-env.ps1 -WhatIf  # Preview mode
 ```
 
-## Secret Rotation Scripts (Optional)
-
-The Bot App client secret expires after 25 days. The following scripts automate secret rotation so you don't have to manually rotate secrets.
-
-> **Important:** Scripts 01-09 are required to deploy the application. Scripts 10-12 are optional but recommended for production deployments to ensure the bot continues working after 25 days.
-
-### 10-rotate-bot-secret.ps1
-
-**Purpose:** Manual/emergency secret rotation (run locally when needed)
-
-This is a **local script** for manual rotation - you typically don't need to run this. Use it only for:
-- Emergency rotation if a secret is compromised
-- Testing the rotation process
-- Rotating secrets when Azure Automation is not set up
-
-```powershell
-.\10-rotate-bot-secret.ps1
-.\10-rotate-bot-secret.ps1 -WhatIf  # Preview mode
-.\10-rotate-bot-secret.ps1 -SecretValidityDays 30  # Custom validity
-```
-
-### 11-setup-secret-rotation-automation.ps1
-
-**Purpose:** Sets up Azure Automation to rotate secrets automatically every 20 days
-
-Creates Azure Automation infrastructure:
-- Azure Automation Account with Managed Identity
-- Automation Variables for configuration
-- PowerShell Runbook (`Rotate-BotSecret-Runbook.ps1`) that runs in Azure
-- Schedule to run every 20 days (5 days before the 25-day expiry)
-
-> **Note:** The Runbook is different from script 10. The Runbook runs in Azure using Managed Identity, while script 10 runs locally using your Azure CLI credentials.
-- Creates and publishes the rotation runbook
-- Schedules rotation to run every 20 days
-
-```powershell
-.\11-setup-secret-rotation-automation.ps1
-.\11-setup-secret-rotation-automation.ps1 -WhatIf  # Preview mode
-```
-
-> **Note:** After running script 11, run script 12 to grant permissions, then link the schedule manually.
-
-### 12-grant-graph-permissions.ps1
-
-Grants Microsoft Graph API permissions to the Automation Account's Managed Identity:
-- Installs Microsoft.Graph PowerShell module if needed
-- Connects to Microsoft Graph (browser auth)
-- Grants `Application.ReadWrite.All` permission to the Managed Identity
-- Verifies the permission was applied
-
-```powershell
-.\12-grant-graph-permissions.ps1
-.\12-grant-graph-permissions.ps1 -WhatIf  # Preview mode
-```
-
-> **Note:** After running this script, link the schedule to the runbook in Azure Portal:
-> 1. Go to Automation Accounts → `az-{city}-automation`
-> 2. Click Runbooks → `Rotate-BotSecret`
-> 3. Click "Link to schedule"
-> 4. Select `RotateBotSecret-Every20Days`
-
----
-
-### Understanding Secret Rotation Components
-
-This section clarifies the difference between the local script (10) and the Azure Automation Runbook.
-
-| Component | Location | Runs | When to Use |
-|-----------|----------|------|-------------|
-| **Script 10** (`10-rotate-bot-secret.ps1`) | Local machine | Manually by you | Emergency rotation, testing, or when Azure Automation is not set up |
-| **Runbook** (`runbooks/Rotate-BotSecret-Runbook.ps1`) | Azure Automation | Automatically every 20 days | Normal production operation - hands-free rotation |
-| **Script 11** | Local machine | Once during setup | Sets up Azure Automation Account and uploads the Runbook |
-| **Script 12** | Local machine | Once during setup | Grants Graph API permissions to the Automation Account |
-
-**Important Notes:**
-- **Script 10 is NOT run automatically.** It exists for manual/emergency use only.
-- **The Runbook is the automated component** - it runs in Azure using Managed Identity (no credentials needed).
-- **Scripts 11 and 12 are setup-only** - run them once to configure Azure Automation, then the Runbook handles everything automatically.
-- The Runbook and Script 10 perform the same function (rotate the secret), but the Runbook is designed to run in Azure with Managed Identity authentication.
-
-**Typical Workflow:**
-1. Deploy your app using scripts 01-09 ✅
-2. Run scripts 11-12 to set up Azure Automation (one-time setup) ✅
-3. Link the schedule to the runbook in Azure Portal (one-time manual step) ✅
-4. **Done!** The Runbook runs automatically every 20 days - no further action needed 🎉
-
----
-
 ### Quick Start - Full Deployment
 
 ```powershell
@@ -302,30 +214,6 @@ cd deployment/deployment-scripts
 .\08-upload-assistant-document.ps1
 .\09-configure-container-app-env.ps1
 ```
-
-### Setup Automated Secret Rotation (Optional)
-
-```powershell
-# Set up Azure Automation for automatic secret rotation
-.\11-setup-secret-rotation-automation.ps1
-.\12-grant-graph-permissions.ps1
-```
-
-**Final Manual Step - Link Schedule to Runbook:**
-
-After running the scripts above, you must link the schedule to the runbook in Azure Portal:
-
-1. Go to **Azure Portal** → **Automation Accounts** → `az-{city}-automation`
-2. In the left menu, click **Runbooks**
-3. Click on **`Rotate-BotSecret`**
-4. In the top menu, click **"Link to schedule"**
-5. Click **"Link a schedule to your runbook"**
-6. Select **`RotateBotSecret-Every20Days`**
-7. Click **OK**
-
-To verify the link was created:
-- Go to **Automation Accounts** → `az-{city}-automation` → **Schedules**
-- The schedule should show "Linked runbooks: 1"
 
 ### Updating Code After Deployment
 
